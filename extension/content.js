@@ -147,6 +147,12 @@
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type !== "SWM_MENTORING_DATA_UPDATED") return;
-    frame.src = `${scheduleUrl()}&updated=${Date.now()}`;
+    frame.contentWindow?.postMessage(
+      {
+        type: "SWM_MENTORING_DATA_UPDATED",
+        payload: message.payload,
+      },
+      EXTENSION_ORIGIN,
+    );
   });
 })();

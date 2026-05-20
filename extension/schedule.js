@@ -489,6 +489,13 @@
 
     function updateSelectedPersonHint(count) {
       void count;
+      updatePageTitle();
+    }
+
+    function updatePageTitle() {
+      setText('pageTitle', selectedPerson
+        ? `소마 17기 멘토링 일정 - ${selectedPerson}`
+        : '소마 17기 멘토링 일정');
     }
 
     function setDetectedPerson(name) {
@@ -505,6 +512,7 @@
     }
 
     function parseMarkdown(md) {
+      detailMap = new Map();
       // 메타 정보
       const metaMatch = md.match(/생성일: (.+)/);
       const countMatch = md.match(/수집 건수: (\d+)/);
@@ -746,12 +754,16 @@
     };
     let view = 'calendar'; // 'calendar' | 'scheduleCalendar' | 'schedule' | 'mentors' | 'myMentors' | 'peers'
     let availableMonths = [];
-    let currentMonth = '';
+    let currentMonth = todayIso().slice(0, 7);
 
     function initMonthState() {
-      availableMonths = Array.from(new Set(allItems.map(item => item.date.slice(0, 7)))).sort();
       const thisMonth = todayIso().slice(0, 7);
-      currentMonth = availableMonths.includes(thisMonth) ? thisMonth : (availableMonths[0] || '');
+      const previousMonth = currentMonth;
+      availableMonths = Array.from(new Set([
+        thisMonth,
+        ...allItems.map(item => item.date.slice(0, 7)),
+      ])).sort();
+      currentMonth = availableMonths.includes(previousMonth) ? previousMonth : thisMonth;
     }
 
     function monthLabel(month) {
@@ -923,7 +935,6 @@
       const allInterest = monthItems.filter(i => getState(i.id) === 'interest').length;
       setHtml('stats', `
         <span class="stat applied">신청 <strong>${allApplied}</strong>건</span>
-        ${selectedPerson ? `<span class="stat">기준: <strong>${escape(selectedPerson)}</strong></span>` : ''}
         <span class="stat">월 <strong>${escape(monthLabel(currentMonth))}</strong></span>
         <span class="stat">관심 <strong>${allInterest}</strong>건</span>
         <span class="stat">필터 결과 <strong>${filtered.length}</strong>건</span>
@@ -1030,7 +1041,6 @@
 
       setHtml('stats', `
         <span class="stat applied">내 신청 <strong>${applied.length}</strong>건</span>
-        ${selectedPerson ? `<span class="stat">기준: <strong>${escape(selectedPerson)}</strong></span>` : ''}
         <span class="stat">월 <strong>${escape(monthLabel(currentMonth))}</strong></span>
         ${conflicts.size > 0 ? `<span class="stat conflict">충돌 <strong>${conflicts.size}</strong>건</span>` : ''}
       `);
@@ -1827,6 +1837,24 @@
       if (event.data?.type !== 'SWM_COLLECTOR_STARTED') return;
       const button = byId('refreshData');
       button.textContent = '수집 중...';
+    });
+
+    window.addEventListener('message', event => {
+      if (event.origin !== SWM_ORIGIN) return;
+      if (event.data?.type !== 'SWM_MENTORING_DATA_UPDATED') return;
+
+      loadData()
+        .then(() => {
+          const button = byId('refreshData');
+          button.disabled = false;
+          button.textContent = '데이터 갱신';
+        })
+        .catch(err => {
+          const button = byId('refreshData');
+          button.disabled = false;
+          button.textContent = '데이터 갱신';
+          setHtml('content', `<div class="empty">데이터 갱신 후 로드 실패: ${err.message}</div>`);
+        });
     });
 
     // 시작
