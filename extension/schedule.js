@@ -885,6 +885,7 @@
     // ===== 렌더 =====
     const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
     const dayCollapsed = new Map();
+    let shouldScrollToTodaySchedule = false;
 
     function todayIso() {
       const now = new Date();
@@ -918,6 +919,14 @@
         dayCollapsed.set(date, collapsed);
       });
       render();
+    }
+
+    function openTodayScheduleOnly() {
+      const today = todayIso();
+      getScheduleDates().forEach(date => {
+        dayCollapsed.set(date, date !== today);
+      });
+      shouldScrollToTodaySchedule = true;
     }
 
     function updateToggleAllDaysButton() {
@@ -997,6 +1006,13 @@
         el.onclick = () => toggleDay(el.dataset.dayToggle);
       });
       updateToggleAllDaysButton();
+      if (shouldScrollToTodaySchedule) {
+        shouldScrollToTodaySchedule = false;
+        requestAnimationFrame(() => {
+          const todayGroup = document.querySelector(`.day-group[data-date="${todayIso()}"]`);
+          todayGroup?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+      }
       document.querySelectorAll('.item').forEach(el => {
         el.onclick = e => {
           if (e.target.closest('.action-btn')) return;
@@ -1774,7 +1790,10 @@
       filters.my = button.dataset.my;
     });
     bindFilterChip('#viewSwitch', button => {
-      view = button.dataset.view;
+      const nextView = button.dataset.view;
+      const isEnteringSchedule = view !== 'schedule' && nextView === 'schedule';
+      view = nextView;
+      if (isEnteringSchedule) openTodayScheduleOnly();
     });
 
     byId('refreshData').onclick = () => {
