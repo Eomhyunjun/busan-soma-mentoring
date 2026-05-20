@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "SWM Mentoring Collector",
+  "description": "SW Maestro 멘토링 일정과 신청자 명단을 수집해 확장 일정 화면에 반영합니다.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "SWM 멘토링 수집",
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' https: data:;"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "https://www.swmaestro.ai/*",
+    "https://swmaestromain.notion.site/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.swmaestro.ai/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "schedule.html",
+        "schedule.js",
+        "schedule-app.js"
+      ],
+      "matches": [
+        "https://www.swmaestro.ai/*"
+      ]
+    }
+  ]
+}

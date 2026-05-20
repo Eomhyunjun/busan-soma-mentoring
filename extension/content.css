@@ -1,0 +1,112 @@
+#swm-mentoring-toggle.swm-floating {
+  position: fixed;
+  right: 18px;
+  bottom: 132px;
+  z-index: 2147483000;
+  min-width: 138px;
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 14px;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+  cursor: pointer;
+  font: 700 13px/1.2 -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+  letter-spacing: 0;
+}
+
+#swm-mentoring-toggle.swm-floating:hover {
+  background: #1d4ed8;
+}
+
+#swm-mentoring-toggle.swm-floating.swm-active {
+  background: #18181b;
+  box-shadow: 0 10px 24px rgba(24, 24, 27, 0.22);
+}
+
+.swm-mentoring-quick-bar {
+  z-index: 2147483001 !important;
+}
+
+.swm-mentoring-quick-bar.swm-mentoring-view-open {
+  position: fixed !important;
+}
+
+.quick-menu #swm-mentoring-toggle.swm-in-quick-menu {
+  position: relative;
+  display: block;
+  border: 0;
+  background-color: #006eb7 !important;
+  color: #fff !important;
+  cursor: pointer;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.quick-menu #swm-mentoring-toggle.swm-in-quick-menu:hover {
+  background-color: #005a96 !important;
+}
+
+.quick-menu #swm-mentoring-toggle.swm-in-quick-menu.swm-active {
+  background-color: #333 !important;
+}
+
+.quick-menu #swm-mentoring-toggle.swm-in-quick-menu::before {
+  content: "일정";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff !important;
+  font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.quick-menu #swm-mentoring-toggle.swm-in-quick-menu.swm-active::before {
+  content: "닫기";
+}
+
+.quick-menu #swm-mentoring-toggle.swm-in-quick-menu .quick-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+#swm-mentoring-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482999;
+  display: none;
+  background: #fafafa;
+}
+
+#swm-mentoring-viewer.swm-open {
+  display: block;
+}
+
+#swm-mentoring-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fafafa;
+}
+
+body.swm-mentoring-open {
+  overflow: hidden !important;
+}
+
+@media (max-width: 640px) {
+  #swm-mentoring-toggle.swm-floating {
+    right: 12px;
+    bottom: 104px;
+    min-width: 124px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+}
