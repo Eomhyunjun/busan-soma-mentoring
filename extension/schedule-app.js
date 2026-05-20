@@ -1,5 +1,7 @@
 // ===== 공통 유틸 =====
     const SWM_ORIGIN = 'https://www.swmaestro.ai';
+    const EXTENSION_ORIGIN = window.location.origin;
+    const TRUSTED_MESSAGE_ORIGINS = new Set([SWM_ORIGIN, EXTENSION_ORIGIN]);
     const byId = (id) => document.getElementById(id);
     const setHtml = (id, html) => {
       byId(id).innerHTML = html;
@@ -11,6 +13,7 @@
       setHtml('modalContent', html);
       byId('modal').classList.add('open');
     };
+    const isTrustedMessage = (event) => TRUSTED_MESSAGE_ORIGINS.has(event.origin);
 
     function setActiveChip(groupSelector, activeButton) {
       document.querySelectorAll(`${groupSelector} .chip`).forEach(button => {
@@ -503,6 +506,13 @@
 
       updateSelectedPersonHint(countSelectedPersonApplied());
       render();
+    }
+
+    async function refreshFromStorage() {
+      await loadData();
+      const button = byId('refreshData');
+      button.disabled = false;
+      button.textContent = '데이터 갱신';
     }
 
     function findMentor(authorName) {
@@ -1733,7 +1743,7 @@
     }, true);
 
     window.addEventListener('message', event => {
-      if (event.origin !== SWM_ORIGIN) return;
+      if (!isTrustedMessage(event)) return;
       if (event.data?.type !== 'SWM_SELECTED_PERSON') return;
       const name = String(event.data.name || '').trim();
       if (!name || name === selectedPerson) return;
@@ -1833,22 +1843,17 @@
     });
 
     window.addEventListener('message', event => {
-      if (event.origin !== SWM_ORIGIN) return;
+      if (!isTrustedMessage(event)) return;
       if (event.data?.type !== 'SWM_COLLECTOR_STARTED') return;
       const button = byId('refreshData');
       button.textContent = '수집 중...';
     });
 
     window.addEventListener('message', event => {
-      if (event.origin !== SWM_ORIGIN) return;
+      if (!isTrustedMessage(event)) return;
       if (event.data?.type !== 'SWM_MENTORING_DATA_UPDATED') return;
 
-      loadData()
-        .then(() => {
-          const button = byId('refreshData');
-          button.disabled = false;
-          button.textContent = '데이터 갱신';
-        })
+      refreshFromStorage()
         .catch(err => {
           const button = byId('refreshData');
           button.disabled = false;
