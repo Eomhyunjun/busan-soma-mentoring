@@ -18,6 +18,7 @@
   if (!isSwmPage()) return;
 
   let detectedPerson = "";
+  let frameReady = false;
 
   const normalizeName = (value) => (value || "").replace(/\s+/g, "").trim();
   const scheduleUrl = () => `${chrome.runtime.getURL(SCHEDULE_PAGE)}?v=${SCHEDULE_VERSION}`;
@@ -81,6 +82,7 @@
   };
 
   const sendPersonToFrame = () => {
+    if (!frameReady) return;
     if (!detectedPerson || !frame.contentWindow) return;
     frame.contentWindow.postMessage(
       {
@@ -110,7 +112,10 @@
   document.documentElement.appendChild(viewer);
   mountToggleButton(button);
 
-  frame.addEventListener("load", sendPersonToFrame);
+  frame.addEventListener("load", () => {
+    frameReady = true;
+    sendPersonToFrame();
+  });
   window.addEventListener("message", (event) => {
     if (event.origin !== EXTENSION_ORIGIN) return;
     if (event.source !== frame.contentWindow) return;
