@@ -8,6 +8,12 @@
   const FRAME_ID = "swm-mentoring-frame";
   const QUICK_MENU_SELECTOR = ".quick-menu";
   const QUICK_BAR_SELECTOR = ".quick-bar";
+  const MESSAGE_TYPES = {
+    selectedPerson: "SWM_SELECTED_PERSON",
+    runCollector: "SWM_RUN_COLLECTOR",
+    collectorStarted: "SWM_COLLECTOR_STARTED",
+    dataUpdated: "SWM_MENTORING_DATA_UPDATED",
+  };
 
   if (document.getElementById(TOGGLE_ID)) return;
 
@@ -86,7 +92,7 @@
     if (!detectedPerson || !frame.contentWindow) return;
     frame.contentWindow.postMessage(
       {
-        type: "SWM_SELECTED_PERSON",
+        type: MESSAGE_TYPES.selectedPerson,
         name: detectedPerson,
       },
       EXTENSION_ORIGIN,
@@ -119,12 +125,12 @@
   window.addEventListener("message", (event) => {
     if (event.origin !== EXTENSION_ORIGIN) return;
     if (event.source !== frame.contentWindow) return;
-    if (event.data?.type !== "SWM_RUN_COLLECTOR") return;
+    if (event.data?.type !== MESSAGE_TYPES.runCollector) return;
 
-    chrome.runtime.sendMessage({ type: "SWM_RUN_COLLECTOR" }).catch((error) => {
+    chrome.runtime.sendMessage({ type: MESSAGE_TYPES.runCollector }).catch((error) => {
       console.warn("[SWM Mentoring] 데이터 갱신 요청 실패:", error);
     });
-    frame.contentWindow?.postMessage({ type: "SWM_COLLECTOR_STARTED" }, EXTENSION_ORIGIN);
+    frame.contentWindow?.postMessage({ type: MESSAGE_TYPES.collectorStarted }, EXTENSION_ORIGIN);
   });
 
   detectCurrentPerson().catch((error) => {
@@ -151,10 +157,10 @@
   });
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== "SWM_MENTORING_DATA_UPDATED") return;
+    if (message?.type !== MESSAGE_TYPES.dataUpdated) return;
     frame.contentWindow?.postMessage(
       {
-        type: "SWM_MENTORING_DATA_UPDATED",
+        type: MESSAGE_TYPES.dataUpdated,
         payload: message.payload,
       },
       EXTENSION_ORIGIN,

@@ -2,6 +2,12 @@
     const SWM_ORIGIN = 'https://www.swmaestro.ai';
     const EXTENSION_ORIGIN = window.location.origin;
     const TRUSTED_MESSAGE_ORIGINS = new Set([SWM_ORIGIN, EXTENSION_ORIGIN]);
+    const MESSAGE_TYPES = {
+      selectedPerson: 'SWM_SELECTED_PERSON',
+      runCollector: 'SWM_RUN_COLLECTOR',
+      collectorStarted: 'SWM_COLLECTOR_STARTED',
+      dataUpdated: 'SWM_MENTORING_DATA_UPDATED',
+    };
     const byId = (id) => document.getElementById(id);
     const setHtml = (id, html) => {
       byId(id).innerHTML = html;
@@ -14,6 +20,13 @@
       byId('modal').classList.add('open');
     };
     const isTrustedMessage = (event) => TRUSTED_MESSAGE_ORIGINS.has(event.origin);
+
+    function setRefreshButtonState(text, disabled = false) {
+      const button = byId('refreshData');
+      if (!button) return;
+      button.disabled = disabled;
+      button.textContent = text;
+    }
 
     function setActiveChip(groupSelector, activeButton) {
       document.querySelectorAll(`${groupSelector} .chip`).forEach(button => {
@@ -510,9 +523,7 @@
 
     async function refreshFromStorage() {
       await loadData();
-      const button = byId('refreshData');
-      button.disabled = false;
-      button.textContent = '데이터 갱신';
+      setRefreshButtonState('데이터 갱신');
     }
 
     function findMentor(authorName) {
@@ -1745,6 +1756,30 @@
       byId('modal').classList.remove('open');
     }
 
+    function handleExtensionMessage(event) {
+      if (!isTrustedMessage(event)) return;
+
+      const { type, name } = event.data || {};
+      if (type === MESSAGE_TYPES.selectedPerson) {
+        const detectedName = String(name || '').trim();
+        if (detectedName && detectedName !== selectedPerson) setDetectedPerson(detectedName);
+        return;
+      }
+
+      if (type === MESSAGE_TYPES.collectorStarted) {
+        setRefreshButtonState('수집 중...', true);
+        return;
+      }
+
+      if (type === MESSAGE_TYPES.dataUpdated) {
+        refreshFromStorage()
+          .catch(err => {
+            setRefreshButtonState('데이터 갱신');
+            setHtml('content', `<div class="empty">데이터 갱신 후 로드 실패: ${err.message}</div>`);
+          });
+      }
+    }
+
     document.addEventListener('error', e => {
       const img = e.target;
       if (!(img instanceof HTMLImageElement)) return;
@@ -1758,13 +1793,7 @@
       img.style.display = 'none';
     }, true);
 
-    window.addEventListener('message', event => {
-      if (!isTrustedMessage(event)) return;
-      if (event.data?.type !== 'SWM_SELECTED_PERSON') return;
-      const name = String(event.data.name || '').trim();
-      if (!name || name === selectedPerson) return;
-      setDetectedPerson(name);
-    });
+    window.addEventListener('message', handleExtensionMessage);
 
     // ===== 이벤트 =====
     byId('search').oninput = e => {
@@ -1797,10 +1826,8 @@
     });
 
     byId('refreshData').onclick = () => {
-      const button = byId('refreshData');
-      button.disabled = true;
-      button.textContent = '갱신 중...';
-      window.parent.postMessage({ type: 'SWM_RUN_COLLECTOR' }, SWM_ORIGIN);
+      setRefreshButtonState('갱신 중...', true);
+      window.parent.postMessage({ type: MESSAGE_TYPES.runCollector }, SWM_ORIGIN);
     };
 
     document.addEventListener('click', e => {
@@ -1859,26 +1886,6 @@
 
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') closeModal();
-    });
-
-    window.addEventListener('message', event => {
-      if (!isTrustedMessage(event)) return;
-      if (event.data?.type !== 'SWM_COLLECTOR_STARTED') return;
-      const button = byId('refreshData');
-      button.textContent = '수집 중...';
-    });
-
-    window.addEventListener('message', event => {
-      if (!isTrustedMessage(event)) return;
-      if (event.data?.type !== 'SWM_MENTORING_DATA_UPDATED') return;
-
-      refreshFromStorage()
-        .catch(err => {
-          const button = byId('refreshData');
-          button.disabled = false;
-          button.textContent = '데이터 갱신';
-          setHtml('content', `<div class="empty">데이터 갱신 후 로드 실패: ${err.message}</div>`);
-        });
     });
 
     // 시작

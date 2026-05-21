@@ -2,6 +2,11 @@ const DB_NAME = "swmMentoringDB";
 const DB_VERSION = 1;
 const STORE_NAME = "snapshots";
 const LATEST_KEY = "latest";
+const MESSAGE_TYPES = {
+  runCollector: "SWM_RUN_COLLECTOR",
+  saveMarkdown: "SWM_MENTORING_SAVE_MARKDOWN",
+  dataUpdated: "SWM_MENTORING_DATA_UPDATED",
+};
 
 const openDb = () =>
   new Promise((resolve, reject) => {
@@ -37,7 +42,7 @@ const putSnapshot = async (snapshot) => {
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "SWM_RUN_COLLECTOR") {
+  if (message?.type === MESSAGE_TYPES.runCollector) {
     if (!sender.tab?.id) {
       sendResponse({ ok: false, error: "활성 SWM 탭을 찾지 못했습니다." });
       return false;
@@ -53,13 +58,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type !== "SWM_MENTORING_SAVE_MARKDOWN") return false;
+  if (message?.type !== MESSAGE_TYPES.saveMarkdown) return false;
 
   putSnapshot(message.payload)
     .then(() => {
       sendResponse({ ok: true });
       chrome.tabs.sendMessage(sender.tab.id, {
-        type: "SWM_MENTORING_DATA_UPDATED",
+        type: MESSAGE_TYPES.dataUpdated,
         payload: {
           count: message.payload.count,
           generatedAt: message.payload.generatedAt,

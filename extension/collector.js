@@ -6,6 +6,9 @@
     applicantPageSize: 10,
     detailConcurrency: 10,
   };
+  const MESSAGE_TYPES = {
+    saveMarkdown: "SWM_MENTORING_SAVE_MARKDOWN",
+  };
 
   const appPrefix = (() => {
     const match = location.pathname.match(/^\/(?:busan\/)?sw(?=\/)/);
@@ -502,7 +505,7 @@
     };
 
     const response = await chrome.runtime.sendMessage({
-      type: "SWM_MENTORING_SAVE_MARKDOWN",
+      type: MESSAGE_TYPES.saveMarkdown,
       payload,
     });
 

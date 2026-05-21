@@ -39,7 +39,6 @@
     {
       "resources": [
         "schedule.html",
-        "schedule.js",
         "schedule-app.js"
       ],
       "matches": [
