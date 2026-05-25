@@ -21,11 +21,19 @@
     };
     const isTrustedMessage = (event) => TRUSTED_MESSAGE_ORIGINS.has(event.origin);
 
-    function setRefreshButtonState(text, disabled = false) {
-      const button = byId('refreshData');
+    function setButtonState(id, text, disabled = false) {
+      const button = byId(id);
       if (!button) return;
       button.disabled = disabled;
       button.textContent = text;
+    }
+
+    function setRefreshButtonState(text, disabled = false) {
+      setButtonState('refreshData', text, disabled);
+    }
+
+    function setMentorButtonState(text, disabled = false) {
+      setButtonState('refreshMentors', text, disabled);
     }
 
     function setActiveChip(groupSelector, activeButton) {
@@ -578,6 +586,24 @@
       await loadData();
       presentDiff(computeDiff(prev, captureSnapshot()));
       setRefreshButtonState('데이터 갱신');
+    }
+
+    // 멘토 캐시를 우회하고 Notion에서 강제로 다시 받아온다(loadMentors는 캐시 우선).
+    async function refreshMentors() {
+      setMentorButtonState('멘토 갱신 중...', true);
+      try {
+        const mentors = await fetchMentorsFromNotion();
+        await writeSnapshot({ key: 'mentors', mentors, updatedAt: Date.now() });
+        indexMentors(mentors);
+        migrateFavoriteKeys();
+        render();
+        showToast(`멘토 프로필 ${mentors.length}명 갱신됨`);
+      } catch (err) {
+        console.warn('멘토 프로필 갱신 실패:', err.message);
+        showToast(`멘토 갱신 실패: ${err.message}`);
+      } finally {
+        setMentorButtonState('멘토 갱신');
+      }
     }
 
     function findMentor(authorName) {
@@ -2098,6 +2124,10 @@
     byId('refreshData').onclick = () => {
       setRefreshButtonState('갱신 중...', true);
       window.parent.postMessage({ type: MESSAGE_TYPES.runCollector }, SWM_ORIGIN);
+    };
+
+    byId('refreshMentors').onclick = () => {
+      refreshMentors();
     };
 
     document.addEventListener('click', e => {

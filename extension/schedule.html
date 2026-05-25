@@ -114,6 +114,24 @@
       cursor: wait;
     }
 
+    .header-actions {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .refresh-btn.ghost {
+      background: transparent;
+      color: var(--accent);
+    }
+
+    .refresh-btn.ghost:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
 
     .subtitle {
       color: var(--text-muted);
@@ -1144,7 +1162,10 @@
           <h1 id="pageTitle">소마 17기 멘토링 일정</h1>
           <div class="subtitle" id="subtitle">로딩 중...</div>
         </div>
-        <button class="refresh-btn" id="refreshData" type="button">데이터 갱신</button>
+        <div class="header-actions">
+          <button class="refresh-btn" id="refreshData" type="button">데이터 갱신</button>
+          <button class="refresh-btn ghost" id="refreshMentors" type="button">멘토 갱신</button>
+        </div>
       </div>
       <div class="stats" id="stats"></div>
       <div class="legend">
