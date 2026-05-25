@@ -822,7 +822,7 @@
 
     // ===== 데이터 갱신 변경점(diff) =====
     // 갱신은 보통 뷰어가 열린 채 일어나므로, 직전 상태를 메모리에서 캡처해 새 수집본과 비교한다.
-    const SNAPSHOT_FIELDS = ['status', 'appliedCount', 'capNum', 'date', 'start', 'end', 'title', 'author'];
+    const SNAPSHOT_FIELDS = ['title', 'author', 'date', 'start', 'end', 'location', 'mode'];
 
     function captureSnapshot() {
       const snapshot = new Map();
@@ -834,34 +834,18 @@
       return snapshot;
     }
 
-    function appliedRatio(applied, capNum) {
-      return (typeof applied === 'number' && capNum > 0) ? applied / capNum : null;
-    }
-
     // 순수 함수: 직전/현재 스냅샷(Map<id, slim>)을 받아 변경을 분류해 반환한다.
+    // 인원(신청자 수·마감) 변화는 제외하고 멘토링 정보 자체(일정·장소·존재)의 변화만 본다.
     function computeDiff(prev, next) {
-      const diff = { hadPrev: !!(prev && prev.size), added: [], removed: [], changed: [], favoriteNew: [] };
+      const diff = { hadPrev: !!(prev && prev.size), added: [], removed: [], changed: [], favoriteNew: [], mine: [] };
       if (diff.hadPrev) {
         for (const [id, now] of next) {
           const before = prev.get(id);
           if (!before) { diff.added.push(now); continue; }
           const types = [];
-          if (before.status !== '마감' && now.status === '마감') types.push('closed');
-          const rPrev = appliedRatio(before.appliedCount, before.capNum);
-          const rNext = appliedRatio(now.appliedCount, now.capNum);
-          if (now.status !== '마감' && rPrev !== null && rNext !== null && rPrev < 0.7 && rNext >= 0.7) {
-            types.push('nearFull');
-          }
-          const countMoved = typeof before.appliedCount === 'number'
-            && typeof now.appliedCount === 'number'
-            && before.appliedCount !== now.appliedCount;
-          if (countMoved) types.push('count');
-          if (types.length) {
-            diff.changed.push({
-              id, item: now, prev: before, types,
-              countDelta: countMoved ? now.appliedCount - before.appliedCount : null,
-            });
-          }
+          if (before.date !== now.date || before.start !== now.start || before.end !== now.end) types.push('time');
+          if (before.location !== now.location || before.mode !== now.mode) types.push('place');
+          if (types.length) diff.changed.push({ id, item: now, prev: before, types });
         }
         for (const [id, before] of prev) {
           if (!next.has(id)) diff.removed.push(before);
@@ -870,18 +854,23 @@
           const mentor = findMentor(item.author);
           return mentor && isFavoriteMentor(mentor);
         });
+        // 내가 신청(applied)한 멘토링의 변동 — 일정/장소 변경 또는 삭제 (인원 변동 제외)
+        diff.mine = [
+          ...diff.removed.filter(x => getState(x.id) === 'applied').map(x => ({ kind: 'removed', item: x })),
+          ...diff.changed.filter(c => getState(c.id) === 'applied').map(c => ({ kind: 'changed', entry: c })),
+        ];
       }
       const changedOf = (type) => diff.changed.filter(c => c.types.includes(type)).length;
       diff.counts = {
+        mine: diff.mine.length,
         added: diff.added.length,
         removed: diff.removed.length,
-        closed: changedOf('closed'),
-        nearFull: changedOf('nearFull'),
-        count: changedOf('count'),
+        time: changedOf('time'),
+        place: changedOf('place'),
         favoriteNew: diff.favoriteNew.length,
       };
-      diff.counts.total = diff.counts.added + diff.counts.removed
-        + diff.counts.closed + diff.counts.nearFull + diff.counts.count;
+      // total은 객관적 변경(중복 없는 added/removed/time/place)만 — mine은 그 부분집합이라 제외
+      diff.counts.total = diff.counts.added + diff.counts.removed + diff.counts.time + diff.counts.place;
       return diff;
     }
 
@@ -891,11 +880,11 @@
     }
 
     const DIFF_TYPE_META = {
+      mine: { label: '🔔 내 신청 변동', badge: '🔔' },
       added: { label: '🆕 신규', badge: '🆕' },
-      removed: { label: '❌ 취소', badge: '❌' },
-      closed: { label: '🔒 마감', badge: '🔒' },
-      nearFull: { label: '⚠ 임박', badge: '⚠' },
-      count: { label: '🔢 신청자변동', badge: '🔢' },
+      removed: { label: '❌ 삭제', badge: '❌' },
+      time: { label: '🕐 일정 변경', badge: '🕐' },
+      place: { label: '📍 장소 변경', badge: '📍' },
     };
 
     function diffWhen(item) {
@@ -904,14 +893,18 @@
       return `${item.date.slice(5).replace('-', '/')}(${wd}) ${escape(item.start || '')}`;
     }
 
-    function diffItemButton(item, badge, { removed = false } = {}) {
+    function placeLabel(slim) {
+      return slim.mode === '온라인' ? '온라인' : (slim.location || '장소 미정');
+    }
+
+    function diffItemButton(item, badge, { removed = false, detail = '' } = {}) {
       const mineClass = !removed && isMyItem(item.id) ? ' mine' : '';
       const removedClass = removed ? ' removed' : '';
       const attrs = removed ? '' : ` data-update-id="${item.id}"`;
       return `
         <button class="update-banner-item${mineClass}${removedClass}"${attrs}>
           <span class="update-banner-when">${diffWhen(item)}</span>
-          ${badge} ${escape(item.author)} · ${escape(item.title)}
+          ${badge} ${escape(item.author)} · ${escape(item.title)}${detail ? `<span class="update-banner-detail"> ${detail}</span>` : ''}
         </button>
       `;
     }
@@ -922,18 +915,31 @@
       return diff.changed.some(c => c.types.includes(type) && isMyItem(c.id));
     }
 
+    function changedDetail(c, type) {
+      if (type === 'place' && c.types.includes('place')) return `${escape(placeLabel(c.prev))} → ${escape(placeLabel(c.item))}`;
+      if (c.types.includes('time')) return `${diffWhen(c.prev)} → ${diffWhen(c.item)}`;
+      if (c.types.includes('place')) return `${escape(placeLabel(c.prev))} → ${escape(placeLabel(c.item))}`;
+      return '';
+    }
+
+    function changedBadge(c, type) {
+      if (type === 'place') return DIFF_TYPE_META.place.badge;
+      if (type === 'time') return DIFF_TYPE_META.time.badge;
+      return c.types.includes('time') ? DIFF_TYPE_META.time.badge : DIFF_TYPE_META.place.badge;
+    }
+
     function diffItemsByType(diff, type) {
+      if (type === 'mine') {
+        return diff.mine.map(entry => entry.kind === 'removed'
+          ? diffItemButton(entry.item, DIFF_TYPE_META.removed.badge, { removed: true })
+          : diffItemButton(entry.entry.item, changedBadge(entry.entry), { detail: changedDetail(entry.entry) }));
+      }
       if (type === 'added') return diff.added.map(item => diffItemButton(item, DIFF_TYPE_META.added.badge));
       if (type === 'removed') return diff.removed.map(item => diffItemButton(item, DIFF_TYPE_META.removed.badge, { removed: true }));
-      const changed = diff.changed
+      return diff.changed
         .filter(c => c.types.includes(type))
-        .sort((a, b) => (isMyItem(b.id) ? 1 : 0) - (isMyItem(a.id) ? 1 : 0));
-      return changed.map(c => {
-        const delta = type === 'count' && c.countDelta != null
-          ? ` ${c.countDelta > 0 ? '+' : ''}${c.countDelta}`
-          : '';
-        return diffItemButton(c.item, DIFF_TYPE_META[type].badge + delta);
-      });
+        .sort((a, b) => (isMyItem(b.id) ? 1 : 0) - (isMyItem(a.id) ? 1 : 0))
+        .map(c => diffItemButton(c.item, changedBadge(c, type), { detail: changedDetail(c, type) }));
     }
 
     function bindDiffItemClicks(container) {
@@ -947,7 +953,7 @@
       if (!el) return;
       if (diff.counts.total === 0) { el.classList.remove('show'); el.replaceChildren(); return; }
 
-      const types = ['added', 'removed', 'closed', 'nearFull', 'count'].filter(t => diff.counts[t] > 0);
+      const types = ['mine', 'added', 'removed', 'time', 'place'].filter(t => diff.counts[t] > 0);
       const chips = types.map(t =>
         `<button class="update-chip" type="button" data-update-chip="${t}">${DIFF_TYPE_META[t].label} ${diff.counts[t]}</button>`
       ).join('');
@@ -976,8 +982,8 @@
         el.classList.remove('show');
         el.replaceChildren();
       };
-      // 내 신청/관심 항목이 걸린 유형을 먼저 펼치고, 없으면 첫 유형을 펼친다.
-      showType(types.find(t => typeHasMine(diff, t)) || types[0]);
+      // 내 신청 변동이 있으면 그 칩을, 없으면 내 항목이 걸린 유형을, 그것도 없으면 첫 유형을 펼친다.
+      showType(diff.counts.mine > 0 ? 'mine' : (types.find(t => typeHasMine(diff, t)) || types[0]));
     }
 
     function renderFavoriteUpdate(diff) {

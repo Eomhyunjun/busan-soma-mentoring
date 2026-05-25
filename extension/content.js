@@ -127,10 +127,16 @@
     if (event.source !== frame.contentWindow) return;
     if (event.data?.type !== MESSAGE_TYPES.runCollector) return;
 
-    chrome.runtime.sendMessage({ type: MESSAGE_TYPES.runCollector }).catch((error) => {
-      console.warn("[SWM Mentoring] 데이터 갱신 요청 실패:", error);
-    });
-    frame.contentWindow?.postMessage({ type: MESSAGE_TYPES.collectorStarted }, EXTENSION_ORIGIN);
+    // 확장을 리로드하면 이미 주입돼 있던 이 스크립트의 컨텍스트가 무효화되어
+    // chrome.runtime 호출이 동기적으로 throw한다(.catch로 잡히지 않음). try로 감싸 안내한다.
+    try {
+      chrome.runtime.sendMessage({ type: MESSAGE_TYPES.runCollector }).catch((error) => {
+        console.warn("[SWM Mentoring] 데이터 갱신 요청 실패:", error);
+      });
+      frame.contentWindow?.postMessage({ type: MESSAGE_TYPES.collectorStarted }, EXTENSION_ORIGIN);
+    } catch (error) {
+      console.warn("[SWM Mentoring] 확장이 갱신되어 컨텍스트가 무효화됐습니다. 이 페이지를 새로고침해 주세요.", error);
+    }
   });
 
   detectCurrentPerson().catch((error) => {
