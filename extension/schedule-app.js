@@ -48,6 +48,7 @@
     const STORAGE_KEY = 'mentoring_user_state_v1';
     const PERSON_APPLIED_KEY = 'mentoring_person_applied_v1';
     const MENTOR_FAVORITES_KEY = 'mentoring_mentor_favorites_v1';
+    const USER_DATA_KEYS = [STORAGE_KEY, PERSON_APPLIED_KEY, MENTOR_FAVORITES_KEY];
     const STATES = ['none', 'applied', 'interest', 'meh', 'exclude'];
     const STATE_LABELS = {
       none: '·',
@@ -64,70 +65,120 @@
       exclude: '제외',
     };
 
+    // chrome.storage.local 어댑터 — 손으로 표시한 사용자 상태의 영구 저장소.
+    // 즐겨찾기/관심 등은 재수집으로 복구할 수 없어 확장 전용 저장소에 보관한다.
+    const storage = {
+      get(key) {
+        return new Promise((resolve, reject) => {
+          chrome.storage.local.get(key, (result) => {
+            const err = chrome.runtime.lastError;
+            err ? reject(new Error(err.message)) : resolve(result[key]);
+          });
+        });
+      },
+      set(key, value) {
+        return new Promise((resolve, reject) => {
+          chrome.storage.local.set({ [key]: value }, () => {
+            const err = chrome.runtime.lastError;
+            err ? reject(new Error(err.message)) : resolve();
+          });
+        });
+      },
+    };
+
+    const persist = (key, value) =>
+      storage.set(key, value).catch(e => console.warn(`상태 저장 실패 (${key}):`, e.message));
+
+    const asObject = (value) => (value && typeof value === 'object' ? value : {});
+
     let selectedPerson = '';
 
-    let userState = loadState();
-    let personApplied = loadPersonApplied();
-    let mentorFavorites = loadMentorFavorites();
+    // chrome.storage는 비동기라 초기화 시 loadUserData()로 채운다. 그 전까지는 빈 상태.
+    let userState = {};
+    let personApplied = {};
+    let mentorFavorites = {};
 
-    function loadState() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) return JSON.parse(raw);
-      } catch (e) {}
-      return {};
+    async function loadUserData() {
+      userState = asObject(await storage.get(STORAGE_KEY));
+      personApplied = asObject(await storage.get(PERSON_APPLIED_KEY));
+      mentorFavorites = asObject(await storage.get(MENTOR_FAVORITES_KEY));
     }
 
-    function saveState() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(userState));
+    // 구버전 localStorage 데이터를 chrome.storage.local로 1회 이전(멱등).
+    // chrome.storage에 값이 있으면 건너뛰고, 원본은 롤백 대비로 남겨둔다.
+    async function migrateFromLocalStorage() {
+      for (const key of USER_DATA_KEYS) {
+        if ((await storage.get(key)) !== undefined) continue;
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        try {
+          await storage.set(key, JSON.parse(raw));
+        } catch (e) {
+          console.warn(`localStorage 이전 실패 (${key}):`, e.message);
+        }
+      }
     }
 
-    function loadPersonApplied() {
-      try {
-        const raw = localStorage.getItem(PERSON_APPLIED_KEY);
-        if (raw) return JSON.parse(raw);
-      } catch (e) {}
-      return {};
+    function saveState() { persist(STORAGE_KEY, userState); }
+    function savePersonApplied() { persist(PERSON_APPLIED_KEY, personApplied); }
+    function saveMentorFavorites() { persist(MENTOR_FAVORITES_KEY, mentorFavorites); }
+
+    // 멘토 즐겨찾기 안정 키 — 불안정한 Notion 블록 id 대신 정규화한 멘토 이름을 쓴다.
+    // indexMentors의 키 생성과 같은 규칙(한글 이름 우선, 없으면 정제 이름)이라 mentorMap과 일관된다.
+    function mentorKey(mentor) {
+      if (!mentor || !mentor.name) return '';
+      const korean = mentor.name.match(/[가-힣]{2,4}/);
+      if (korean) return korean[0];
+      return mentor.name.replace(/멘토|✨|✯|¸\.|•|´|¨|\*|✿|`|\.|\s/g, '').toLowerCase();
     }
 
-    function savePersonApplied() {
-      localStorage.setItem(PERSON_APPLIED_KEY, JSON.stringify(personApplied));
-    }
-
-    function loadMentorFavorites() {
-      try {
-        const raw = localStorage.getItem(MENTOR_FAVORITES_KEY);
-        if (raw) return JSON.parse(raw);
-      } catch (e) {}
-      return {};
-    }
-
-    function saveMentorFavorites() {
-      localStorage.setItem(MENTOR_FAVORITES_KEY, JSON.stringify(mentorFavorites));
-    }
-
-    function isFavoriteMentor(mentorId) {
-      return !!mentorFavorites[String(mentorId)];
+    function isFavoriteMentor(mentor) {
+      const key = mentorKey(mentor);
+      return !!key && !!mentorFavorites[key];
     }
 
     function countFavoriteMentors() {
       return Object.keys(mentorFavorites).length;
     }
 
-    function toggleFavoriteMentor(mentorId) {
-      const key = String(mentorId);
+    function toggleFavoriteMentor(key) {
+      if (!key) return;
       if (mentorFavorites[key]) delete mentorFavorites[key];
       else mentorFavorites[key] = true;
       saveMentorFavorites();
     }
 
-    function renderFavoriteButton(mentorId) {
-      const active = isFavoriteMentor(mentorId);
+    function renderFavoriteButton(mentor) {
+      const key = mentorKey(mentor);
+      if (!key) return '';
+      const active = !!mentorFavorites[key];
       return `
-        <button class="mentor-fav ${active ? 'active' : ''}" type="button" data-mentor-favorite="${escape(mentorId)}" title="${active ? '즐겨찾기 해제' : '즐겨찾기 추가'}">
+        <button class="mentor-fav ${active ? 'active' : ''}" type="button" data-mentor-favorite="${escape(key)}" data-mentor-modal-id="${escape(mentor.id)}" title="${active ? '즐겨찾기 해제' : '즐겨찾기 추가'}">
           ${active ? '★' : '☆'}
         </button>
       `;
+    }
+
+    // 구버전 즐겨찾기(Notion id 키)를 이름 키로 이전. 멘토 로드 후 호출.
+    // 멘토 목록이 비었으면(로드 실패) 건너뛰고, 현재 멘토와 매칭 안 되는 id는 손실 방지를 위해 보존한다.
+    function migrateFavoriteKeys() {
+      if (!mentorMap || mentorMap.size === 0) return;
+      const byId = new Map(Array.from(mentorMap.values()).map(m => [m.id, m]));
+      let changed = false;
+      for (const oldKey of Object.keys(mentorFavorites)) {
+        if (!isNotionBlockId(oldKey)) continue;
+        const mentor = byId.get(oldKey);
+        if (!mentor) continue;
+        const newKey = mentorKey(mentor);
+        if (newKey) mentorFavorites[newKey] = true;
+        delete mentorFavorites[oldKey];
+        changed = true;
+      }
+      if (changed) saveMentorFavorites();
+    }
+
+    function isNotionBlockId(value) {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
     }
 
     function hasManualPersonApplied(id) {
@@ -491,6 +542,7 @@
       // 멘토 정보 (선택적)
       try {
         indexMentors(await loadMentors());
+        migrateFavoriteKeys();
       } catch (e) {
         console.warn('Notion 멘토 정보 로드 실패:', e.message);
       }
@@ -522,7 +574,9 @@
     }
 
     async function refreshFromStorage() {
+      const prev = captureSnapshot();
       await loadData();
+      presentDiff(computeDiff(prev, captureSnapshot()));
       setRefreshButtonState('데이터 갱신');
     }
 
@@ -764,6 +818,216 @@
         }
       }
       return overlaps;
+    }
+
+    // ===== 데이터 갱신 변경점(diff) =====
+    // 갱신은 보통 뷰어가 열린 채 일어나므로, 직전 상태를 메모리에서 캡처해 새 수집본과 비교한다.
+    const SNAPSHOT_FIELDS = ['status', 'appliedCount', 'capNum', 'date', 'start', 'end', 'title', 'author'];
+
+    function captureSnapshot() {
+      const snapshot = new Map();
+      for (const item of allItems) {
+        const slim = { id: item.id };
+        for (const field of SNAPSHOT_FIELDS) slim[field] = item[field];
+        snapshot.set(item.id, slim);
+      }
+      return snapshot;
+    }
+
+    function appliedRatio(applied, capNum) {
+      return (typeof applied === 'number' && capNum > 0) ? applied / capNum : null;
+    }
+
+    // 순수 함수: 직전/현재 스냅샷(Map<id, slim>)을 받아 변경을 분류해 반환한다.
+    function computeDiff(prev, next) {
+      const diff = { hadPrev: !!(prev && prev.size), added: [], removed: [], changed: [], favoriteNew: [] };
+      if (diff.hadPrev) {
+        for (const [id, now] of next) {
+          const before = prev.get(id);
+          if (!before) { diff.added.push(now); continue; }
+          const types = [];
+          if (before.status !== '마감' && now.status === '마감') types.push('closed');
+          const rPrev = appliedRatio(before.appliedCount, before.capNum);
+          const rNext = appliedRatio(now.appliedCount, now.capNum);
+          if (now.status !== '마감' && rPrev !== null && rNext !== null && rPrev < 0.7 && rNext >= 0.7) {
+            types.push('nearFull');
+          }
+          const countMoved = typeof before.appliedCount === 'number'
+            && typeof now.appliedCount === 'number'
+            && before.appliedCount !== now.appliedCount;
+          if (countMoved) types.push('count');
+          if (types.length) {
+            diff.changed.push({
+              id, item: now, prev: before, types,
+              countDelta: countMoved ? now.appliedCount - before.appliedCount : null,
+            });
+          }
+        }
+        for (const [id, before] of prev) {
+          if (!next.has(id)) diff.removed.push(before);
+        }
+        diff.favoriteNew = diff.added.filter(item => {
+          const mentor = findMentor(item.author);
+          return mentor && isFavoriteMentor(mentor);
+        });
+      }
+      const changedOf = (type) => diff.changed.filter(c => c.types.includes(type)).length;
+      diff.counts = {
+        added: diff.added.length,
+        removed: diff.removed.length,
+        closed: changedOf('closed'),
+        nearFull: changedOf('nearFull'),
+        count: changedOf('count'),
+        favoriteNew: diff.favoriteNew.length,
+      };
+      diff.counts.total = diff.counts.added + diff.counts.removed
+        + diff.counts.closed + diff.counts.nearFull + diff.counts.count;
+      return diff;
+    }
+
+    function isMyItem(id) {
+      const state = getState(id);
+      return state === 'applied' || state === 'interest';
+    }
+
+    const DIFF_TYPE_META = {
+      added: { label: '🆕 신규', badge: '🆕' },
+      removed: { label: '❌ 취소', badge: '❌' },
+      closed: { label: '🔒 마감', badge: '🔒' },
+      nearFull: { label: '⚠ 임박', badge: '⚠' },
+      count: { label: '🔢 신청자변동', badge: '🔢' },
+    };
+
+    function diffWhen(item) {
+      if (!item.date) return '';
+      const wd = WEEKDAYS[new Date(item.date + 'T00:00:00').getDay()];
+      return `${item.date.slice(5).replace('-', '/')}(${wd}) ${escape(item.start || '')}`;
+    }
+
+    function diffItemButton(item, badge, { removed = false } = {}) {
+      const mineClass = !removed && isMyItem(item.id) ? ' mine' : '';
+      const removedClass = removed ? ' removed' : '';
+      const attrs = removed ? '' : ` data-update-id="${item.id}"`;
+      return `
+        <button class="update-banner-item${mineClass}${removedClass}"${attrs}>
+          <span class="update-banner-when">${diffWhen(item)}</span>
+          ${badge} ${escape(item.author)} · ${escape(item.title)}
+        </button>
+      `;
+    }
+
+    function typeHasMine(diff, type) {
+      if (type === 'added') return diff.added.some(i => isMyItem(i.id));
+      if (type === 'removed') return diff.removed.some(i => isMyItem(i.id));
+      return diff.changed.some(c => c.types.includes(type) && isMyItem(c.id));
+    }
+
+    function diffItemsByType(diff, type) {
+      if (type === 'added') return diff.added.map(item => diffItemButton(item, DIFF_TYPE_META.added.badge));
+      if (type === 'removed') return diff.removed.map(item => diffItemButton(item, DIFF_TYPE_META.removed.badge, { removed: true }));
+      const changed = diff.changed
+        .filter(c => c.types.includes(type))
+        .sort((a, b) => (isMyItem(b.id) ? 1 : 0) - (isMyItem(a.id) ? 1 : 0));
+      return changed.map(c => {
+        const delta = type === 'count' && c.countDelta != null
+          ? ` ${c.countDelta > 0 ? '+' : ''}${c.countDelta}`
+          : '';
+        return diffItemButton(c.item, DIFF_TYPE_META[type].badge + delta);
+      });
+    }
+
+    function bindDiffItemClicks(container) {
+      container.querySelectorAll('[data-update-id]').forEach(btn => {
+        btn.onclick = () => showDetail(parseInt(btn.dataset.updateId, 10));
+      });
+    }
+
+    function renderUpdateSummary(diff) {
+      const el = byId('updateSummary');
+      if (!el) return;
+      if (diff.counts.total === 0) { el.classList.remove('show'); el.replaceChildren(); return; }
+
+      const types = ['added', 'removed', 'closed', 'nearFull', 'count'].filter(t => diff.counts[t] > 0);
+      const chips = types.map(t =>
+        `<button class="update-chip" type="button" data-update-chip="${t}">${DIFF_TYPE_META[t].label} ${diff.counts[t]}</button>`
+      ).join('');
+
+      el.innerHTML = `
+        <div class="update-banner-title">
+          <span>갱신 완료 · 변경 ${diff.counts.total}건</span>
+          <button class="update-banner-close" type="button" data-update-close title="닫기">✕</button>
+        </div>
+        <div class="update-banner-chips">${chips}</div>
+        <div class="update-banner-list" id="updateSummaryList"></div>
+      `;
+      el.classList.add('show');
+
+      const listEl = byId('updateSummaryList');
+      const showType = (type) => {
+        listEl.innerHTML = diffItemsByType(diff, type).join('');
+        el.querySelectorAll('[data-update-chip]').forEach(chip =>
+          chip.classList.toggle('active', chip.dataset.updateChip === type));
+        bindDiffItemClicks(listEl);
+      };
+      el.querySelectorAll('[data-update-chip]').forEach(chip => {
+        chip.onclick = () => showType(chip.dataset.updateChip);
+      });
+      el.querySelector('[data-update-close]').onclick = () => {
+        el.classList.remove('show');
+        el.replaceChildren();
+      };
+      // 내 신청/관심 항목이 걸린 유형을 먼저 펼치고, 없으면 첫 유형을 펼친다.
+      showType(types.find(t => typeHasMine(diff, t)) || types[0]);
+    }
+
+    function renderFavoriteUpdate(diff) {
+      const el = byId('favoriteUpdate');
+      if (!el) return;
+      if (!diff.favoriteNew.length) { el.classList.remove('show'); el.replaceChildren(); return; }
+
+      const items = [...diff.favoriteNew].sort((a, b) =>
+        (a.author || '').localeCompare(b.author || '', 'ko') || (a.date || '').localeCompare(b.date || ''));
+      el.innerHTML = `
+        <div class="update-banner-title">
+          <span>⭐ 즐겨찾기 멘토 새 특강 ${diff.favoriteNew.length}건</span>
+          <button class="update-banner-close" type="button" data-update-close title="닫기">✕</button>
+        </div>
+        <div class="update-banner-list">
+          ${items.map(item => diffItemButton(item, '⭐')).join('')}
+        </div>
+      `;
+      el.classList.add('show');
+      el.querySelector('[data-update-close]').onclick = () => {
+        el.classList.remove('show');
+        el.replaceChildren();
+      };
+      bindDiffItemClicks(el);
+    }
+
+    function hideUpdateBanners() {
+      for (const id of ['favoriteUpdate', 'updateSummary']) {
+        const el = byId(id);
+        if (el) { el.classList.remove('show'); el.replaceChildren(); }
+      }
+    }
+
+    let toastTimer = null;
+    function showToast(message) {
+      const el = byId('toast');
+      if (!el) return;
+      el.textContent = message;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
+    }
+
+    function presentDiff(diff) {
+      if (!diff.hadPrev) { hideUpdateBanners(); return; }
+      renderFavoriteUpdate(diff);
+      renderUpdateSummary(diff);
+      showToast(diff.counts.total === 0
+        ? `변경 없음 · ${allItems.length}건 유지`
+        : `변경 ${diff.counts.total}건 반영됨`);
     }
 
     // ===== 필터 =====
@@ -1451,8 +1715,8 @@
       const sorted = [...byAuthor.entries()].sort((a, b) => {
         const ma = findMentor(a[0]);
         const mb = findMentor(b[0]);
-        const fa = ma && isFavoriteMentor(ma.id) ? 1 : 0;
-        const fb = mb && isFavoriteMentor(mb.id) ? 1 : 0;
+        const fa = isFavoriteMentor(ma) ? 1 : 0;
+        const fb = isFavoriteMentor(mb) ? 1 : 0;
         if (fa !== fb) return fb - fa;
         return b[1].length - a[1].length || a[0].localeCompare(b[0], 'ko');
       });
@@ -1465,7 +1729,7 @@
               <div class="day-header" style="cursor:${m ? 'pointer' : 'default'}" ${m ? `data-mentor-id="${m.id}"` : ''}>
                 <div class="day-title" style="display:flex;align-items:center;gap:10px">
                   ${m ? renderMentorImage(m, 'avatar', author, ' style="width:32px;height:32px"') : ''}
-                  ${m ? renderFavoriteButton(m.id) : ''}
+                  ${m ? renderFavoriteButton(m) : ''}
                   ${escape(author)}
                   ${m ? '<span style="font-size:11px;color:var(--accent);font-weight:400">› 상세</span>' : ''}
                 </div>
@@ -1530,8 +1794,8 @@
         if (m) lecCount.set(m.id, (lecCount.get(m.id) || 0) + 1);
       }
       filtered.sort((a, b) => {
-        const fa = isFavoriteMentor(a.id) ? 1 : 0;
-        const fb = isFavoriteMentor(b.id) ? 1 : 0;
+        const fa = isFavoriteMentor(a) ? 1 : 0;
+        const fb = isFavoriteMentor(b) ? 1 : 0;
         if (fa !== fb) return fb - fa;
         const la = lecCount.get(a.id) || 0;
         const lb = lecCount.get(b.id) || 0;
@@ -1558,8 +1822,8 @@
             const cnt = lecCount.get(m.id) || 0;
             const tags = (m['기술분야'] || '').split(',').slice(0, 4).map(t => t.trim()).filter(Boolean);
             return `
-              <div class="mentor-tile ${isFavoriteMentor(m.id) ? 'favorite' : ''}" data-mentor-id="${m.id}">
-                ${renderFavoriteButton(m.id)}
+              <div class="mentor-tile ${isFavoriteMentor(m) ? 'favorite' : ''}" data-mentor-id="${m.id}">
+                ${renderFavoriteButton(m)}
                 ${renderMentorImage(m, 'mentor-tile-img', m.name) || '<div class="mentor-tile-img"></div>'}
                 <div style="flex:1;min-width:0">
                   <div class="mentor-tile-name">${escape(m.name)}</div>
@@ -1596,7 +1860,7 @@
       openModal(`
         <h2>
           ${escape(m.name)}
-          ${renderFavoriteButton(m.id)}
+          ${renderFavoriteButton(m)}
           <button class="modal-close" type="button" data-modal-close>✕</button>
         </h2>
         <div class="mentor-card">
@@ -1673,7 +1937,7 @@
         <div class="mentor-card">
           ${renderMentorImage(mentor, 'avatar-lg', mentor.name)}
           <div class="mentor-info">
-            <div class="mentor-name">${escape(mentor.name)} ${renderFavoriteButton(mentor.id)}</div>
+            <div class="mentor-name">${escape(mentor.name)} ${renderFavoriteButton(mentor)}</div>
             ${mentor['거주지'] ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">${escape(mentor['거주지'])}${mentor['MBTI'] ? ' · '+escape(mentor['MBTI']) : ''}</div>` : ''}
             ${mentor['멘토 구분'] ? `<div class="mentor-tags">${mentor['멘토 구분'].split(',').map(t => `<span class="mentor-tag region">${escape(t.trim())}</span>`).join('')}</div>` : ''}
             ${mentor['주개발언어'] ? `<div class="mentor-tags">${mentor['주개발언어'].split(',').slice(0,8).map(t => `<span class="mentor-tag lang">${escape(t.trim())}</span>`).join('')}</div>` : ''}
@@ -1846,11 +2110,10 @@
       if (favoriteBtn) {
         e.preventDefault();
         e.stopPropagation();
-        const mentorId = favoriteBtn.dataset.mentorFavorite;
-        toggleFavoriteMentor(mentorId);
+        toggleFavoriteMentor(favoriteBtn.dataset.mentorFavorite);
         render();
-        const modal = byId('modal');
-        if (modal.classList.contains('open')) showMentor(mentorId);
+        const modalMentorId = favoriteBtn.dataset.mentorModalId;
+        if (byId('modal').classList.contains('open') && modalMentorId) showMentor(modalMentorId);
         return;
       }
 
@@ -1888,8 +2151,16 @@
       if (e.key === 'Escape') closeModal();
     });
 
-    // 시작
-    loadData().catch(err => {
+    // 시작 — 사용자 상태를 먼저 chrome.storage.local에서 불러온 뒤(구버전 localStorage는 1회 이전) 일정을 로드한다.
+    (async () => {
+      try {
+        await migrateFromLocalStorage();
+        await loadUserData();
+      } catch (e) {
+        console.warn('사용자 상태 로드 실패:', e.message);
+      }
+      await loadData();
+    })().catch(err => {
       setHtml('content', `<div class="empty">데이터 로드 실패: ${err.message}<br><br>소마 부산 페이지에서 확장 아이콘을 누른 뒤 <strong>멘토링 수집</strong>을 먼저 실행해주세요.</div>`);
     });
   

@@ -1001,6 +1001,117 @@
       font-weight: 700;
     }
 
+    /* 데이터 갱신 변경점/즐겨찾기 알림 배너 — conflict-warning 패턴 공유 */
+    .update-banner {
+      display: none;
+      margin-bottom: 12px;
+      padding: 12px 14px;
+      border: 1px solid;
+      border-left-width: 4px;
+      border-radius: 8px;
+    }
+
+    .update-banner.show { display: block; }
+
+    .update-banner.update-summary {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .update-banner.favorite-update {
+      background: var(--yellow-soft);
+      border-color: var(--yellow);
+      color: var(--yellow);
+    }
+
+    .update-banner-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .update-banner-close {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0.7;
+    }
+    .update-banner-close:hover { opacity: 1; }
+
+    .update-banner-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .update-chip {
+      padding: 3px 9px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      background: var(--bg-card);
+      color: inherit;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .update-chip.active { background: var(--bg-soft); }
+
+    .update-banner-list { display: grid; gap: 6px; }
+
+    .update-banner-item {
+      width: 100%;
+      text-align: left;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.45;
+      cursor: pointer;
+    }
+    .update-banner-item:hover { background: var(--bg-soft); }
+    .update-banner-item.mine { border-left: 3px solid var(--red); }
+    .update-banner-item.removed { cursor: default; opacity: 0.65; }
+    .update-banner-item.removed:hover { background: var(--bg-card); }
+
+    .update-banner-when {
+      display: inline-block;
+      margin-right: 6px;
+      font-weight: 700;
+      color: var(--text-soft);
+    }
+
+    .toast {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 2147483647;
+      max-width: 320px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: var(--text);
+      color: var(--bg-card);
+      font-size: 13px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
     .legend {
       display: flex;
       gap: 12px;
@@ -1046,6 +1157,8 @@
       </div>
     </header>
 
+    <div class="update-banner favorite-update" id="favoriteUpdate"></div>
+    <div class="update-banner update-summary" id="updateSummary"></div>
     <div class="conflict-warning" id="conflictWarning"></div>
 
     <div class="toolbar view-toolbar">
@@ -1102,6 +1215,8 @@
   <div class="modal-backdrop" id="modal">
     <div class="modal" id="modalContent"></div>
   </div>
+
+  <div class="toast" id="toast"></div>
 
   <script src="schedule-app.js"></script>
 </body>
