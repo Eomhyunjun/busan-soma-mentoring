@@ -2130,7 +2130,7 @@
               const wd = WEEKDAYS[new Date(it.date+'T00:00:00').getDay()];
               const state = getState(it.id);
               return `
-                <div class="mentor-lecture-item">
+                <div class="mentor-lecture-item" style="cursor:pointer" data-modal-detail-id="${it.id}">
                   <span class="mentor-lecture-date">${it.date.slice(5).replace('-','/')}(${wd}) ${it.start}</span>
                   <span style="flex:1">${state !== 'none' ? STATE_LABELS[state]+' ' : ''}${escape(it.title)}</span>
                   <span class="badge ${it.mode === '온라인' ? 'online' : 'offline'}" style="font-size:10px">${it.mode === '온라인' ? '🌐' : '📍'}</span>
