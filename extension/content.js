@@ -2,7 +2,7 @@
   const SWM_HOST = "www.swmaestro.ai";
   const EXTENSION_ORIGIN = chrome.runtime.getURL("").slice(0, -1);
   const SCHEDULE_PAGE = "schedule.html";
-  const SCHEDULE_VERSION = "20260526-sticky-nav";
+  const SCHEDULE_VERSION = "20260526-scroll-offset";
   const TOGGLE_ID = "swm-mentoring-toggle";
   const VIEWER_ID = "swm-mentoring-viewer";
   const FRAME_ID = "swm-mentoring-frame";

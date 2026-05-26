@@ -393,6 +393,8 @@
     /* Day group */
     .day-group {
       margin-bottom: 24px;
+      /* sticky 네비/필터 높이만큼 띄워 날짜 헤더가 바 아래에 보이도록 */
+      scroll-margin-top: calc(var(--sticky-controls-h, 100px) + 8px);
     }
 
     .day-header {
