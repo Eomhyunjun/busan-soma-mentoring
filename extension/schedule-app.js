@@ -1244,6 +1244,13 @@
       updateToggleAllDaysButton();
     }
 
+    // sticky 네비+필터 묶음의 실제 높이를 측정해 CSS 변수로 노출 → 미니 달력이 그 바로 아래에 붙는다.
+    function updateStickyOffset() {
+      const controls = document.querySelector('.sticky-controls');
+      if (!controls) return;
+      document.documentElement.style.setProperty('--sticky-controls-h', `${controls.offsetHeight}px`);
+    }
+
     function applyFilters(options = {}) {
       const includeMyFilter = options.includeMyFilter !== false;
       return allItems.filter(item => {
@@ -1329,6 +1336,7 @@
     function render() {
       renderToolbarControls();
       renderMonthSwitcher();
+      updateStickyOffset();
       if (view === 'mentors') return renderMentors();
       if (view === 'myMentors') return renderMyMentors();
       if (view === 'peers') return renderPeers();
@@ -2288,6 +2296,7 @@
     }, true);
 
     window.addEventListener('message', handleExtensionMessage);
+    window.addEventListener('resize', updateStickyOffset);
 
     // ===== 이벤트 =====
     byId('search').oninput = e => {

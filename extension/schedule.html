@@ -177,6 +177,16 @@
       min-height: 42px;
     }
 
+    /* 뷰 탭 + 필터를 한 sticky 묶음으로. 높이는 JS가 --sticky-controls-h로 노출 */
+    .sticky-controls {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: var(--bg);
+      padding: 8px 0 16px;
+    }
+    .sticky-controls .filter-toolbar { margin-bottom: 0; }
+
     .search {
       flex: 1;
       min-width: 200px;
@@ -453,7 +463,7 @@
 
     .mini-cal {
       position: sticky;
-      top: 8px;
+      top: var(--sticky-controls-h, 100px);
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 10px;
@@ -573,6 +583,8 @@
       .schedule-layout,
       .schedule-layout.cal-collapsed { grid-template-columns: minmax(0, 1fr); }
       .mini-cal { position: static; }
+      .sticky-controls { position: static; padding: 0; }
+      .sticky-controls .filter-toolbar { margin-bottom: 16px; }
     }
 
     .item {
@@ -1321,6 +1333,7 @@
     <div class="update-banner update-summary" id="updateSummary"></div>
     <div class="conflict-warning" id="conflictWarning"></div>
 
+    <div class="sticky-controls">
     <div class="toolbar view-toolbar">
       <div class="filter-group" id="viewSwitch">
         <button class="chip active" data-view="calendar">📅 내 달력</button>
@@ -1353,6 +1366,7 @@
       <div class="filter-group" id="scheduleToggleGroup">
         <button class="chip" id="toggleAllDays" type="button">전체 열기</button>
       </div>
+    </div>
     </div>
 
     <div class="month-switcher" id="monthSwitcher">
