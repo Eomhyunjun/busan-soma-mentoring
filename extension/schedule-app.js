@@ -1197,7 +1197,8 @@
       const switcher = byId('monthSwitcher');
       if (!title || !switcher || !currentMonth) return;
 
-      const usesMonth = view === 'schedule' || view === 'scheduleCalendar' || view === 'calendar';
+      // 일정 뷰는 월 전환을 미니 달력 헤더로 통합했으므로 전역 월 바를 숨긴다.
+      const usesMonth = view === 'scheduleCalendar' || view === 'calendar';
       switcher.classList.toggle('hidden', !usesMonth);
       if (!usesMonth) return;
 
@@ -1436,13 +1437,29 @@
       });
     }
 
-    // 일정 탭 미니 달력. 현재 리스트에 보이는 날짜(grouped)만 클릭 가능하고,
-    // 배지 숫자는 그 날짜의 '내 신청' 건수다(없으면 일정 있는 날은 점으로 표시).
+    // 일정 탭 미니 달력. 월 전환·통계를 헤더에 통합했다(전역 monthSwitcher는 이 뷰에서 숨김).
+    // 그리드는 현재 리스트에 보이는 날짜(grouped)만 클릭 가능, 배지 숫자는 그날 '내 신청' 건수.
     function renderScheduleMiniCalendar(grouped) {
+      const monthItems = currentMonth ? allItems.filter(item => item.date.startsWith(currentMonth)) : [];
+      const monthApplied = monthItems.filter(item => getState(item.id) === 'applied').length;
+      const idx = monthIndex();
+      const thisMonth = todayIso().slice(0, 7);
+      const prevDisabled = idx <= 0;
+      const nextDisabled = idx < 0 || idx >= availableMonths.length - 1;
+      const todayDisabled = !availableMonths.includes(thisMonth) || currentMonth === thisMonth;
+
       const head = `
         <div class="mini-cal-head">
-          <span class="mini-cal-title">${escape(monthLabel(currentMonth))}</span>
-          <button class="mini-cal-toggle" type="button" data-cal-toggle>달력 ${scheduleCalCollapsed ? '▸' : '▾'}</button>
+          <div class="mini-cal-top">
+            <span class="mini-cal-title">${escape(monthLabel(currentMonth))}</span>
+            <button class="mini-cal-toggle" type="button" data-cal-toggle>달력 ${scheduleCalCollapsed ? '▸' : '▾'}</button>
+          </div>
+          <div class="mini-cal-meta">${monthItems.length}건 · 신청 ${monthApplied}건</div>
+          <div class="mini-cal-nav">
+            <button class="chip" type="button" data-cal-nav="prev" ${prevDisabled ? 'disabled' : ''}>‹ 이전</button>
+            <button class="chip" type="button" data-cal-nav="today" ${todayDisabled ? 'disabled' : ''}>이번 달</button>
+            <button class="chip" type="button" data-cal-nav="next" ${nextDisabled ? 'disabled' : ''}>다음 ›</button>
+          </div>
         </div>
       `;
 
@@ -1458,7 +1475,7 @@
       for (let i = 0; i < totalCells; i++) {
         const day = i - startOffset + 1;
         if (day < 1 || day > lastDate) {
-          cells.push('<div class="mini-day empty"></div>');
+          cells.push('<div class="mini-day blank"></div>');
           continue;
         }
         const date = `${currentMonth}-${String(day).padStart(2, '0')}`;
@@ -1509,6 +1526,18 @@
           dayCollapsed.set(date, false); // 클릭한 날짜는 자동 펼침
           pendingScheduleScrollDate = date; // 렌더 후 그 날짜로 스크롤
           render();
+        };
+      });
+
+      document.querySelectorAll('.mini-cal [data-cal-nav]').forEach(btn => {
+        btn.onclick = () => {
+          const nav = btn.dataset.calNav;
+          if (nav === 'prev') shiftMonth(-1);
+          else if (nav === 'next') shiftMonth(1);
+          else {
+            const thisMonth = todayIso().slice(0, 7);
+            if (availableMonths.includes(thisMonth)) setCurrentMonth(thisMonth);
+          }
         };
       });
     }
