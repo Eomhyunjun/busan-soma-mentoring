@@ -4,8 +4,7 @@
   "description": "SW Maestro 멘토링 일정과 신청자 명단을 수집해 확장 일정 화면에 반영합니다.",
   "version": "0.1.0",
   "action": {
-    "default_title": "SWM 멘토링 수집",
-    "default_popup": "popup.html"
+    "default_title": "부산 소마 멘토링 일정 보기"
   },
   "permissions": [
     "activeTab",

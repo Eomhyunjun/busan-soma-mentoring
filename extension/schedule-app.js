@@ -36,6 +36,10 @@
       setButtonState('refreshMentors', text, disabled);
     }
 
+    function setBackupButtonState(text, disabled = false) {
+      setButtonState('exportBackup', text, disabled);
+    }
+
     function setActiveChip(groupSelector, activeButton) {
       document.querySelectorAll(`${groupSelector} .chip`).forEach(button => {
         button.classList.toggle('active', button === activeButton);
@@ -603,6 +607,84 @@
         showToast(`멘토 갱신 실패: ${err.message}`);
       } finally {
         setMentorButtonState('멘토 갱신');
+      }
+    }
+
+    const BACKUP_TYPE = 'swm-mentoring-backup';
+
+    function downloadJson(filename, data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // 수집 스냅샷·멘토 캐시(IndexedDB)와 사용자 상태(chrome.storage.local)를 한 파일로 묶는다.
+    // 확장 ID(폴더 경로)가 바뀌면 저장소가 비므로, 이 파일로 다른 환경에 그대로 복원한다.
+    async function exportBackup() {
+      setBackupButtonState('내보내는 중...', true);
+      try {
+        const [snapshot, mentors] = await Promise.all([
+          readSnapshot('latest'),
+          readSnapshot('mentors'),
+        ]);
+        const backup = {
+          type: BACKUP_TYPE,
+          version: 1,
+          exportedAt: Date.now(),
+          snapshot,
+          mentors,
+          storage: {
+            [STORAGE_KEY]: asObject(await storage.get(STORAGE_KEY)),
+            [PERSON_APPLIED_KEY]: asObject(await storage.get(PERSON_APPLIED_KEY)),
+            [MENTOR_FAVORITES_KEY]: asObject(await storage.get(MENTOR_FAVORITES_KEY)),
+          },
+        };
+        downloadJson(`swm-mentoring-backup-${todayIso()}.json`, backup);
+        showToast('백업 파일을 내보냈습니다');
+      } catch (err) {
+        console.warn('백업 내보내기 실패:', err.message);
+        showToast(`내보내기 실패: ${err.message}`);
+      } finally {
+        setBackupButtonState('백업 내보내기');
+      }
+    }
+
+    // 백업 파일로 IndexedDB 스냅샷·멘토 캐시와 사용자 상태를 덮어쓴 뒤 다시 로드한다.
+    async function importBackup(file) {
+      let backup;
+      try {
+        backup = JSON.parse(await file.text());
+      } catch {
+        showToast('가져오기 실패: 파일을 읽을 수 없습니다');
+        return;
+      }
+      if (backup?.type !== BACKUP_TYPE) {
+        showToast('가져오기 실패: 이 확장의 백업 파일이 아닙니다');
+        return;
+      }
+      if (!confirm('현재 데이터를 이 백업으로 덮어씁니다. 계속할까요?')) return;
+
+      try {
+        if (backup.snapshot) await writeSnapshot({ ...backup.snapshot, key: 'latest' });
+        if (backup.mentors) await writeSnapshot({ ...backup.mentors, key: 'mentors' });
+        const saved = backup.storage || {};
+        await Promise.all([
+          storage.set(STORAGE_KEY, asObject(saved[STORAGE_KEY])),
+          storage.set(PERSON_APPLIED_KEY, asObject(saved[PERSON_APPLIED_KEY])),
+          storage.set(MENTOR_FAVORITES_KEY, asObject(saved[MENTOR_FAVORITES_KEY])),
+        ]);
+        await loadUserData();
+        await loadData();
+        showToast('백업을 가져왔습니다');
+      } catch (err) {
+        console.warn('백업 가져오기 실패:', err.message);
+        showToast(`가져오기 실패: ${err.message}`);
       }
     }
 
@@ -1192,7 +1274,8 @@
     // ===== 렌더 =====
     const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
     const dayCollapsed = new Map();
-    let shouldScrollToTodaySchedule = false;
+    let pendingScheduleScrollDate = null;
+    let scheduleCalCollapsed = false;
 
     function todayIso() {
       const now = new Date();
@@ -1233,7 +1316,7 @@
       getScheduleDates().forEach(date => {
         dayCollapsed.set(date, date !== today);
       });
-      shouldScrollToTodaySchedule = true;
+      pendingScheduleScrollDate = today;
     }
 
     function updateToggleAllDaysButton() {
@@ -1283,7 +1366,7 @@
         return;
       }
 
-      setHtml('content', dates.map(date => {
+      const listHtml = dates.map(date => {
         const items = grouped[date].sort((a, b) => a.startMin - b.startMin);
         const dt = new Date(date + 'T00:00:00');
         const wd = WEEKDAYS[dt.getDay()];
@@ -1306,18 +1389,27 @@
             </div>
           </section>
         `;
-      }).join(''));
+      }).join('');
+
+      setHtml('content', `
+        <div class="schedule-layout ${scheduleCalCollapsed ? 'cal-collapsed' : ''}">
+          ${renderScheduleMiniCalendar(grouped)}
+          <div class="schedule-list">${listHtml}</div>
+        </div>
+      `);
 
       // 이벤트
       document.querySelectorAll('[data-day-toggle]').forEach(el => {
         el.onclick = () => toggleDay(el.dataset.dayToggle);
       });
+      bindScheduleMiniCalendar();
       updateToggleAllDaysButton();
-      if (shouldScrollToTodaySchedule) {
-        shouldScrollToTodaySchedule = false;
+      if (pendingScheduleScrollDate) {
+        const target = pendingScheduleScrollDate;
+        pendingScheduleScrollDate = null;
         requestAnimationFrame(() => {
-          const todayGroup = document.querySelector(`.day-group[data-date="${todayIso()}"]`);
-          todayGroup?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          document.querySelector(`.day-group[data-date="${target}"]`)
+            ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         });
       }
       document.querySelectorAll('.item').forEach(el => {
@@ -1339,6 +1431,83 @@
           const action = btn.dataset.action;
           const cur = getState(id);
           setState(id, cur === action ? 'none' : action);
+          render();
+        };
+      });
+    }
+
+    // 일정 탭 미니 달력. 현재 리스트에 보이는 날짜(grouped)만 클릭 가능하고,
+    // 배지 숫자는 그 날짜의 '내 신청' 건수다(없으면 일정 있는 날은 점으로 표시).
+    function renderScheduleMiniCalendar(grouped) {
+      const head = `
+        <div class="mini-cal-head">
+          <span class="mini-cal-title">${escape(monthLabel(currentMonth))}</span>
+          <button class="mini-cal-toggle" type="button" data-cal-toggle>달력 ${scheduleCalCollapsed ? '▸' : '▾'}</button>
+        </div>
+      `;
+
+      if (!currentMonth) return `<aside class="mini-cal">${head}</aside>`;
+
+      const [year, month] = currentMonth.split('-').map(Number);
+      const lastDate = new Date(year, month, 0).getDate();
+      const startOffset = new Date(year, month - 1, 1).getDay();
+      const totalCells = Math.ceil((startOffset + lastDate) / 7) * 7;
+      const today = todayIso();
+
+      const cells = [];
+      for (let i = 0; i < totalCells; i++) {
+        const day = i - startOffset + 1;
+        if (day < 1 || day > lastDate) {
+          cells.push('<div class="mini-day empty"></div>');
+          continue;
+        }
+        const date = `${currentMonth}-${String(day).padStart(2, '0')}`;
+        const dayItems = grouped[date] || [];
+        const hasSessions = dayItems.length > 0;
+        const applied = dayItems.filter(item => getState(item.id) === 'applied').length;
+
+        const classes = ['mini-day', hasSessions ? 'has-sessions' : 'muted'];
+        if (date === today) classes.push('today');
+
+        const badge = applied > 0
+          ? `<span class="mini-day-count">${applied}</span>`
+          : (hasSessions ? '<span class="mini-day-dot"></span>' : '');
+        const title = hasSessions
+          ? `${date.slice(5).replace('-', '/')} · ${dayItems.length}건${applied ? `, 신청 ${applied}` : ''}`
+          : '';
+
+        cells.push(`
+          <button class="${classes.join(' ')}" type="button" title="${title}"
+                  ${hasSessions ? `data-cal-date="${date}"` : 'disabled'}>
+            ${day}${badge}
+          </button>
+        `);
+      }
+
+      return `
+        <aside class="mini-cal">
+          ${head}
+          <div class="mini-cal-body">
+            <div class="mini-cal-weekdays">
+              ${WEEKDAYS.map(d => `<div class="mini-cal-weekday">${d}</div>`).join('')}
+            </div>
+            <div class="mini-cal-grid">${cells.join('')}</div>
+          </div>
+        </aside>
+      `;
+    }
+
+    function bindScheduleMiniCalendar() {
+      const toggle = document.querySelector('[data-cal-toggle]');
+      if (toggle) toggle.onclick = () => {
+        scheduleCalCollapsed = !scheduleCalCollapsed;
+        render();
+      };
+      document.querySelectorAll('.mini-day[data-cal-date]').forEach(btn => {
+        btn.onclick = () => {
+          const date = btn.dataset.calDate;
+          dayCollapsed.set(date, false); // 클릭한 날짜는 자동 펼침
+          pendingScheduleScrollDate = date; // 렌더 후 그 날짜로 스크롤
           render();
         };
       });
@@ -2128,6 +2297,20 @@
 
     byId('refreshMentors').onclick = () => {
       refreshMentors();
+    };
+
+    byId('exportBackup').onclick = () => {
+      exportBackup();
+    };
+
+    byId('importBackup').onclick = () => {
+      byId('importBackupInput').click();
+    };
+
+    byId('importBackupInput').onchange = (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = ''; // 같은 파일을 다시 선택할 수 있게 초기화
+      if (file) importBackup(file);
     };
 
     document.addEventListener('click', e => {

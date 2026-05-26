@@ -6,7 +6,11 @@ const MESSAGE_TYPES = {
   runCollector: "SWM_RUN_COLLECTOR",
   saveMarkdown: "SWM_MENTORING_SAVE_MARKDOWN",
   dataUpdated: "SWM_MENTORING_DATA_UPDATED",
+  openViewer: "SWM_OPEN_VIEWER",
 };
+
+const SWM_ORIGIN = "https://www.swmaestro.ai/";
+const BUSAN_PAGE_URL = `${SWM_ORIGIN}busan/sw/main/main.do`;
 
 const openDb = () =>
   new Promise((resolve, reject) => {
@@ -76,4 +80,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
 
   return true;
+});
+
+// 아이콘 클릭 → (소마 /sw/ 페이지가 아니면) 부산 소마로 이동 후 일정 뷰어를 연다.
+// 수집은 뷰어의 '데이터 갱신'으로 처리하므로 별도 팝업이 필요 없다.
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isSwmSwUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "www.swmaestro.ai" && /^\/(?:busan\/)?sw\//.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+};
+
+const waitForTabComplete = (tabId) =>
+  new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (id, info) => {
+      if (id === tabId && info.status === "complete") finish();
+    };
+    const timer = setTimeout(finish, 8000);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+  });
+
+const ensureBusanTab = async (tab) => {
+  if (tab?.id && isSwmSwUrl(tab.url)) return tab.id;
+  if (tab?.id) {
+    await chrome.tabs.update(tab.id, { url: BUSAN_PAGE_URL, active: true });
+    await waitForTabComplete(tab.id);
+    return tab.id;
+  }
+  const created = await chrome.tabs.create({ url: BUSAN_PAGE_URL });
+  await waitForTabComplete(created.id);
+  return created.id;
+};
+
+const openViewerInTab = async (tabId) => {
+  // 갓 이동한 직후엔 content.js 주입이 한 박자 늦을 수 있어 1회 재시도한다.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: MESSAGE_TYPES.openViewer });
+      return;
+    } catch (error) {
+      if (attempt === 0) await delay(300);
+      else console.warn("[SWM Mentoring] 일정 화면 열기 메시지 전달 실패:", error);
+    }
+  }
+};
+
+chrome.action.onClicked.addListener(async (tab) => {
+  try {
+    const tabId = await ensureBusanTab(tab);
+    await openViewerInTab(tabId);
+  } catch (error) {
+    console.warn("[SWM Mentoring] 일정 화면 열기 실패:", error);
+  }
 });

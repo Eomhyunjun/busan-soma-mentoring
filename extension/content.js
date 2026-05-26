@@ -13,6 +13,7 @@
     runCollector: "SWM_RUN_COLLECTOR",
     collectorStarted: "SWM_COLLECTOR_STARTED",
     dataUpdated: "SWM_MENTORING_DATA_UPDATED",
+    openViewer: "SWM_OPEN_VIEWER",
   };
 
   if (document.getElementById(TOGGLE_ID)) return;
@@ -163,6 +164,10 @@
   });
 
   chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === MESSAGE_TYPES.openViewer) {
+      setOpen(true);
+      return;
+    }
     if (message?.type !== MESSAGE_TYPES.dataUpdated) return;
     frame.contentWindow?.postMessage(
       {

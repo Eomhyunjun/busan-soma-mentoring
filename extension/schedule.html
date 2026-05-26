@@ -441,6 +441,126 @@
       display: none;
     }
 
+    /* 일정 탭: 미니 달력(왼쪽/모바일 상단) + 날짜 리스트 2단 레이아웃 */
+    .schedule-layout {
+      display: grid;
+      grid-template-columns: 264px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .schedule-layout.cal-collapsed { grid-template-columns: minmax(0, 1fr); }
+    .schedule-list { min-width: 0; }
+
+    .mini-cal {
+      position: sticky;
+      top: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .cal-collapsed .mini-cal { position: static; }
+
+    .mini-cal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--bg-soft);
+      border-bottom: 1px solid var(--border);
+    }
+    .cal-collapsed .mini-cal-head { border-bottom: none; }
+    .mini-cal-title { font-size: 13px; font-weight: 700; }
+    .mini-cal-toggle {
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 8px;
+      background: var(--bg-card);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .mini-cal-toggle:hover { color: var(--text); border-color: var(--accent); }
+
+    .mini-cal-body { padding: 8px; }
+    .cal-collapsed .mini-cal-body { display: none; }
+
+    .mini-cal-weekdays,
+    .mini-cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+    .mini-cal-weekdays { margin-bottom: 4px; }
+    .mini-cal-weekday {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      padding: 2px 0;
+    }
+    .mini-cal-grid { gap: 2px; }
+
+    .mini-day {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: none;
+      color: var(--text);
+      cursor: default;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .mini-day.empty { visibility: hidden; }
+    .mini-day.muted { color: var(--text-muted); opacity: 0.4; }
+    .mini-day.has-sessions { cursor: pointer; }
+    .mini-day.has-sessions:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .mini-day.today { box-shadow: inset 0 0 0 2px var(--accent); }
+
+    .mini-day-count {
+      position: absolute;
+      top: 1px;
+      right: 1px;
+      min-width: 15px;
+      height: 15px;
+      padding: 0 3px;
+      border-radius: 999px;
+      background: var(--green);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 15px;
+      text-align: center;
+    }
+    .mini-day-dot {
+      position: absolute;
+      bottom: 3px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      opacity: 0.5;
+    }
+
+    @media (max-width: 640px) {
+      .schedule-layout,
+      .schedule-layout.cal-collapsed { grid-template-columns: minmax(0, 1fr); }
+      .mini-cal { position: static; }
+    }
+
     .item {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -1165,6 +1285,9 @@
         <div class="header-actions">
           <button class="refresh-btn" id="refreshData" type="button">데이터 갱신</button>
           <button class="refresh-btn ghost" id="refreshMentors" type="button">멘토 갱신</button>
+          <button class="refresh-btn ghost" id="exportBackup" type="button">백업 내보내기</button>
+          <button class="refresh-btn ghost" id="importBackup" type="button">백업 가져오기</button>
+          <input type="file" id="importBackupInput" accept="application/json,.json" hidden />
         </div>
       </div>
       <div class="stats" id="stats"></div>
