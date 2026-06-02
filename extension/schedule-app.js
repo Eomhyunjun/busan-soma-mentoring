@@ -275,8 +275,7 @@
     const NOTION_BASE_URL = 'https://swmaestromain.notion.site';
     const NOTION_SPACE_ID = 'ccbd650f-9055-41eb-b9c0-6238b333a223';
     const NOTION_PAGE_ID = '32b91e40-1fdf-8026-a911-df1dc614d5a4';
-    const NOTION_COLLECTION_ID = '32b91e40-1fdf-8139-907e-000b07db5b47';
-    const NOTION_COLLECTION_VIEW_ID = '32b91e40-1fdf-818e-b7be-000c24886d6e';
+    const NOTION_MENTOR_COLLECTION_FIELD = '멘토 구분';
 
     function openExtensionDb() {
       return new Promise((resolve, reject) => {
@@ -344,7 +343,7 @@
 
     function mergeNotionRecordMap(target, recordMap) {
       if (!recordMap) return;
-      for (const tableName of ['block', 'collection']) {
+      for (const tableName of ['block', 'collection', 'collection_view']) {
         const table = recordMap[tableName];
         if (!table) continue;
         if (!target[tableName]) target[tableName] = {};
@@ -362,6 +361,78 @@
       return Array.from(new Set(
         Object.values(blockResults).flatMap(group => Array.isArray(group?.blockIds) ? group.blockIds : [])
       ));
+    }
+
+    function notionRecordValue(record) {
+      return record?.value?.value || null;
+    }
+
+    function isMentorCollection(collection) {
+      const schema = collection?.schema || {};
+      return Object.values(schema).some(field => field?.name === NOTION_MENTOR_COLLECTION_FIELD);
+    }
+
+    function resolveMentorCollection(recordMap) {
+      const candidates = [];
+      const seen = new Set();
+      const collectionViewBlocks = Object.values(recordMap.block || {})
+        .map(notionRecordValue)
+        .filter(block => block?.type === 'collection_view' || block?.type === 'collection_view_page');
+
+      const addCandidate = (collectionId, viewIds) => {
+        const collectionViewIds = Array.isArray(viewIds) ? viewIds.filter(Boolean) : [];
+        if (!collectionId || collectionViewIds.length === 0) return;
+
+        const collection = notionRecordValue(recordMap.collection?.[collectionId]);
+        if (!isMentorCollection(collection)) return;
+
+        const key = `${collectionId}:${collectionViewIds.join(',')}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        candidates.push({ collectionId, collectionViewIds });
+      };
+
+      for (const block of collectionViewBlocks) {
+        addCandidate(block.collection_id, block.view_ids);
+      }
+
+      if (!candidates.length) {
+        throw new Error('Notion 멘토 컬렉션을 찾지 못했습니다.');
+      }
+      return candidates[0];
+    }
+
+    async function queryMentorCollection(collectionTarget, recordMap) {
+      for (const collectionViewId of collectionTarget.collectionViewIds) {
+        const query = await notionPost('/api/v3/queryCollection', {
+          collection: {
+            id: collectionTarget.collectionId,
+            spaceId: NOTION_SPACE_ID,
+          },
+          collectionView: {
+            id: collectionViewId,
+            spaceId: NOTION_SPACE_ID,
+          },
+          loader: {
+            type: 'reducer',
+            reducers: {
+              results: {
+                type: 'results',
+                limit: 500,
+                loadContentCover: true,
+              },
+            },
+            searchQuery: '',
+            userTimeZone: 'Asia/Seoul',
+          },
+        });
+        mergeNotionRecordMap(recordMap, query.recordMap);
+
+        const mentorIds = getNotionQueryBlockIds(query);
+        if (mentorIds.length) return mentorIds;
+      }
+
+      throw new Error('Notion 멘토 컬렉션 결과가 비어 있습니다.');
     }
 
     async function syncNotionBlocks(blockIds, recordMap) {
@@ -432,7 +503,7 @@
     function buildMentorsFromNotionRecordMap(recordMap) {
       const collectionRecord = Object.values(recordMap.collection || {}).find(record => {
         const schema = record?.value?.value?.schema || {};
-        return Object.values(schema).some(field => field?.name === '멘토 구분');
+        return Object.values(schema).some(field => field?.name === NOTION_MENTOR_COLLECTION_FIELD);
       });
       const schema = collectionRecord?.value?.value?.schema || {};
       const schemaName = {};
@@ -473,7 +544,7 @@
     }
 
     async function fetchMentorsFromNotion() {
-      const recordMap = { block: {}, collection: {} };
+      const recordMap = { block: {}, collection: {}, collection_view: {} };
       const rootPage = await notionPost('/api/v3/loadCachedPageChunkV2', {
         page: { id: NOTION_PAGE_ID },
         cursor: { stack: [] },
@@ -481,36 +552,17 @@
       });
       mergeNotionRecordMap(recordMap, rootPage.recordMap);
 
-      const query = await notionPost('/api/v3/queryCollection', {
-        collection: {
-          id: NOTION_COLLECTION_ID,
-          spaceId: NOTION_SPACE_ID,
-        },
-        collectionView: {
-          id: NOTION_COLLECTION_VIEW_ID,
-          spaceId: NOTION_SPACE_ID,
-        },
-        loader: {
-          type: 'reducer',
-          reducers: {
-            results: {
-              type: 'results',
-              limit: 500,
-              loadContentCover: true,
-            },
-          },
-          searchQuery: '',
-          userTimeZone: 'Asia/Seoul',
-        },
-      });
-      mergeNotionRecordMap(recordMap, query.recordMap);
-
-      const mentorIds = getNotionQueryBlockIds(query);
+      const mentorCollection = resolveMentorCollection(recordMap);
+      const mentorIds = await queryMentorCollection(mentorCollection, recordMap);
       await syncNotionBlocks(mentorIds, recordMap);
       await syncNotionBlocks(collectChildBlockIds(recordMap, mentorIds), recordMap);
       await syncNotionBlocks(collectChildBlockIds(recordMap, collectChildBlockIds(recordMap, mentorIds)), recordMap);
 
-      return buildMentorsFromNotionRecordMap(recordMap);
+      const mentors = buildMentorsFromNotionRecordMap(recordMap);
+      if (mentors.length === 0) {
+        throw new Error('Notion 멘토 프로필을 찾지 못했습니다.');
+      }
+      return mentors;
     }
 
     async function loadMentors() {
@@ -988,6 +1040,7 @@
     }
 
     const DIFF_TYPE_META = {
+      all: { label: '전체', badge: '' },
       mine: { label: '🔔 내 신청 변동', badge: '🔔' },
       added: { label: '🆕 신규', badge: '🆕' },
       removed: { label: '❌ 삭제', badge: '❌' },
@@ -1017,12 +1070,6 @@
       `;
     }
 
-    function typeHasMine(diff, type) {
-      if (type === 'added') return diff.added.some(i => isMyItem(i.id));
-      if (type === 'removed') return diff.removed.some(i => isMyItem(i.id));
-      return diff.changed.some(c => c.types.includes(type) && isMyItem(c.id));
-    }
-
     function changedDetail(c, type) {
       if (type === 'place' && c.types.includes('place')) return `${escape(placeLabel(c.prev))} → ${escape(placeLabel(c.item))}`;
       if (c.types.includes('time')) return `${diffWhen(c.prev)} → ${diffWhen(c.item)}`;
@@ -1037,6 +1084,10 @@
     }
 
     function diffItemsByType(diff, type) {
+      if (type === 'all') {
+        return ['added', 'removed', 'time', 'place'].flatMap(entryType =>
+          diffItemsByType(diff, entryType));
+      }
       if (type === 'mine') {
         return diff.mine.map(entry => entry.kind === 'removed'
           ? diffItemButton(entry.item, DIFF_TYPE_META.removed.badge, { removed: true })
@@ -1062,8 +1113,9 @@
       if (diff.counts.total === 0) { el.classList.remove('show'); el.replaceChildren(); return; }
 
       const types = ['mine', 'added', 'removed', 'time', 'place'].filter(t => diff.counts[t] > 0);
-      const chips = types.map(t =>
-        `<button class="update-chip" type="button" data-update-chip="${t}">${DIFF_TYPE_META[t].label} ${diff.counts[t]}</button>`
+      const chipTypes = ['all', ...types];
+      const chips = chipTypes.map(t =>
+        `<button class="update-chip" type="button" data-update-chip="${t}">${DIFF_TYPE_META[t].label} ${t === 'all' ? diff.counts.total : diff.counts[t]}</button>`
       ).join('');
 
       el.innerHTML = `
@@ -1090,8 +1142,7 @@
         el.classList.remove('show');
         el.replaceChildren();
       };
-      // 내 신청 변동이 있으면 그 칩을, 없으면 내 항목이 걸린 유형을, 그것도 없으면 첫 유형을 펼친다.
-      showType(diff.counts.mine > 0 ? 'mine' : (types.find(t => typeHasMine(diff, t)) || types[0]));
+      showType('all');
     }
 
     function renderFavoriteUpdate(diff) {

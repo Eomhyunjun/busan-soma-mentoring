@@ -9,6 +9,16 @@
   const MESSAGE_TYPES = {
     saveMarkdown: "SWM_MENTORING_SAVE_MARKDOWN",
   };
+  const LOGIN_URL =
+    "https://www.swmaestro.ai/busan/sw/member/user/forLogin.do?menuNo=200025";
+
+  class LoginRequiredError extends Error {
+    constructor(message) {
+      super(message);
+      this.name = "LoginRequiredError";
+      this.loginRequired = true;
+    }
+  }
 
   const appPrefix = (() => {
     const match = location.pathname.match(/^\/(?:busan\/)?sw(?=\/)/);
@@ -61,12 +71,16 @@
   };
 
   const looksLikeLoginPage = (text) =>
-    /forLogin\.do|name=["']loginForm|id=["']loginForm|비밀번호|아이디/i.test(
+    /forLogin\.do|name=["']loginForm|id=["']loginForm|접근할 수 없는 세션|세션이\s*만료|로그인이\s*필요|로그인\s*후|비밀번호|아이디/i.test(
       text,
     ) &&
     !/mentoLec\/(?:list|view)\.do|resultList\.push|모집 명|강의날짜|로그아웃/i.test(
       text,
     );
+
+  const redirectToLogin = () => {
+    if (location.href !== LOGIN_URL) location.replace(LOGIN_URL);
+  };
 
   const fetchViaIframe = async (url) =>
     new Promise((resolve, reject) => {
@@ -85,11 +99,7 @@
           iframe.remove();
           if (!html) reject(new Error(`iframe HTML을 읽지 못했습니다: ${url}`));
           else if (looksLikeLoginPage(html)) {
-            reject(
-              new Error(
-                "iframe에서도 로그인 페이지가 반환되었습니다. 현재 탭에서 해당 상세 페이지가 직접 열리는지 확인하세요.",
-              ),
-            );
+            reject(new LoginRequiredError("로그인이 필요하거나 세션이 만료되었습니다."));
           } else resolve(html);
         } catch (error) {
           clearTimeout(timer);
@@ -102,16 +112,24 @@
     });
 
   const fetchText = async (url) => {
-    const response = await fetch(absolutize(url), {
-      credentials: "include",
-      headers: {
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
+    let response;
+    try {
+      response = await fetch(absolutize(url), {
+        credentials: "include",
+        headers: {
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+    } catch (error) {
+      throw new LoginRequiredError(`로그인 상태 확인 실패: ${error.message}`);
+    }
 
     const text = await response.text();
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new LoginRequiredError(`로그인이 필요합니다. (HTTP ${response.status})`);
+      }
       throw new Error(`HTTP ${response.status}: ${url}`);
     }
     if (looksLikeLoginPage(text)) {
@@ -579,6 +597,11 @@
     setTimeout(() => overlay.remove(), 5000);
   } catch (error) {
     console.error(error);
+    if (error.loginRequired) {
+      setOverlay(overlay, `로그인이 필요합니다.\n로그인 페이지로 이동합니다...`);
+      setTimeout(redirectToLogin, 800);
+      return;
+    }
     setOverlay(overlay, `실패: ${error.message}`);
   }
 })();
