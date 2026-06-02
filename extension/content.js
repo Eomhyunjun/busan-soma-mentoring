@@ -130,10 +130,14 @@
           credentials: "include",
         });
       } catch (error) {
-        redirectToLogin(`사용자 정보 요청 실패: ${error.message}`);
+        console.debug("[SWM Mentoring] 신청 기준 이름 보조 감지를 건너뜁니다:", error);
         return;
       }
-      const html = await response.text();
+      const html = await response.text().catch((error) => {
+        console.debug("[SWM Mentoring] 신청 기준 이름 응답을 읽지 못했습니다:", error);
+        return "";
+      });
+      if (!html) return;
       if (!response.ok || looksLikeLoginOrSessionPage(html)) {
         redirectToLogin(`사용자 정보 응답 실패${response.ok ? "" : ` (${response.status})`}.`);
         return;
@@ -171,7 +175,7 @@
   });
 
   detectCurrentPerson().catch((error) => {
-    console.warn("[SWM Mentoring] 신청 기준 이름 감지 실패:", error);
+    console.debug("[SWM Mentoring] 신청 기준 이름 감지를 건너뜁니다:", error);
   });
 
   const setOpen = (open) => {

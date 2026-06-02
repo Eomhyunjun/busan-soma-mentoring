@@ -637,10 +637,17 @@
       render();
     }
 
-    async function refreshFromStorage() {
-      const prev = captureSnapshot();
+    let refreshBaselineSnapshot = null;
+
+    async function refreshFromStorage(updatePayload = {}) {
+      const prev = refreshBaselineSnapshot || captureSnapshot();
       await loadData();
       presentDiff(computeDiff(prev, captureSnapshot()));
+      if (updatePayload.phase === 'partial') {
+        setRefreshButtonState('기존 비교 중...', true);
+        return;
+      }
+      refreshBaselineSnapshot = null;
       setRefreshButtonState('데이터 갱신');
     }
 
@@ -2320,13 +2327,15 @@
       }
 
       if (type === MESSAGE_TYPES.collectorStarted) {
+        refreshBaselineSnapshot = captureSnapshot();
         setRefreshButtonState('수집 중...', true);
         return;
       }
 
       if (type === MESSAGE_TYPES.dataUpdated) {
-        refreshFromStorage()
+        refreshFromStorage(event.data?.payload || {})
           .catch(err => {
+            refreshBaselineSnapshot = null;
             setRefreshButtonState('데이터 갱신');
             setHtml('content', `<div class="empty">데이터 갱신 후 로드 실패: ${err.message}</div>`);
           });

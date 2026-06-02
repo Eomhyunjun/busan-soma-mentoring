@@ -7,10 +7,29 @@
     detailConcurrency: 10,
   };
   const MESSAGE_TYPES = {
+    getSnapshot: "SWM_MENTORING_GET_SNAPSHOT",
     saveMarkdown: "SWM_MENTORING_SAVE_MARKDOWN",
   };
   const LOGIN_URL =
     "https://www.swmaestro.ai/busan/sw/member/user/forLogin.do?menuNo=200025";
+  const OVERLAY_STYLE = [
+    "position:fixed",
+    "z-index:2147483647",
+    "right:16px",
+    "bottom:16px",
+    "width:360px",
+    "max-width:calc(100vw - 32px)",
+    "box-sizing:border-box",
+    "padding:14px 16px",
+    "border-radius:8px",
+    "background:#111827",
+    "color:#fff",
+    "font:13px/1.5 system-ui,-apple-system,BlinkMacSystemFont,sans-serif",
+    "box-shadow:0 10px 30px rgba(0,0,0,.25)",
+    "overflow:hidden",
+  ].join(";");
+  const OVERLAY_ROW_STYLE =
+    "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
 
   class LoginRequiredError extends Error {
     constructor(message) {
@@ -28,6 +47,10 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const absolutize = (url) => new URL(url, location.origin).toString();
+  const numericId = (value) => {
+    const id = parseInt(value, 10);
+    return Number.isFinite(id) ? id : null;
+  };
   const normalizeText = (value) =>
     (value || "")
       .replace(/<br\s*\/?>/gi, "\n")
@@ -122,7 +145,11 @@
         },
       });
     } catch (error) {
-      throw new LoginRequiredError(`로그인 상태 확인 실패: ${error.message}`);
+      console.warn(
+        `[mentoring bookmarklet] fetch failed; retrying via iframe: ${url}`,
+        error,
+      );
+      return fetchViaIframe(url);
     }
 
     const text = await response.text();
@@ -421,7 +448,7 @@
       (a, b) =>
         (a.date || "9999-99-99").localeCompare(b.date || "9999-99-99") ||
         (a.start || "99:99").localeCompare(b.start || "99:99") ||
-        a.title.localeCompare(b.title, "ko"),
+        (a.title || "").localeCompare(b.title || "", "ko"),
     );
 
     const lines = [];
@@ -510,16 +537,228 @@
     return lines.join("\n") + "\n";
   };
 
-  const saveExtensionData = async (markdown, details) => {
+  const unescapeMarkdownTable = (value) =>
+    String(value || "")
+      .replace(/<br>/g, "\n")
+      .replace(/\\\|/g, "|")
+      .trim();
+
+  const splitMarkdownTableRow = (row) =>
+    row.split("|").slice(1, -1).map((cell) => unescapeMarkdownTable(cell));
+
+  const getMarkdownListValue = (section, label) => {
+    const match = section.match(new RegExp(`^- ${label}:\\s*(.*)$`, "m"));
+    const value = match?.[1]?.trim() || "";
+    return value === "-" ? "" : value;
+  };
+
+  const parseTimetableDetail = (line) => {
+    const cells = splitMarkdownTableRow(line);
+    if (cells.length < 10) return null;
+
+    let date;
+    let time;
+    let category;
+    let title;
+    let status;
+    let method;
+    let place;
+    let capacity;
+    let appliedCountText;
+    let author;
+    let id;
+    if (cells.length >= 11) {
+      [
+        date,
+        time,
+        category,
+        title,
+        status,
+        method,
+        place,
+        capacity,
+        appliedCountText,
+        author,
+        id,
+      ] = cells;
+    } else {
+      [date, time, category, title, status, method, place, capacity, author, id] = cells;
+      appliedCountText = "-";
+    }
+
+    const parsedId = numericId(id);
+    if (parsedId === null) return null;
+
+    const [start = "", end = ""] = String(time || "").split("-");
+    return {
+      id: parsedId,
+      url: `${mentoPath}/view.do?qustnrSn=${parsedId}&menuNo=${CONFIG.menuNo}&pageIndex=1`,
+      title: (title || "").replace(/^\[.*?\]\s*/, ""),
+      status,
+      approval: "",
+      applyPeriod: "",
+      lectureRaw: time,
+      date,
+      start,
+      end,
+      method,
+      place,
+      capacity,
+      appliedCount: /^\d+/.test(appliedCountText) ? parseInt(appliedCountText, 10) : null,
+      applicants: [],
+      author,
+      registeredAt: "",
+      category,
+      content: "",
+    };
+  };
+
+  const parseTimetableDetails = (markdown) => {
+    const lines = markdown.split("\n");
+    const tableStart = lines.findIndex((line) => /^\|\s*날짜\s*\|/.test(line));
+    const tableEnd = lines.findIndex(
+      (line, index) => index > tableStart + 1 && !line.startsWith("|"),
+    );
+    const tableLines = tableStart === -1
+      ? []
+      : lines.slice(tableStart + 2, tableEnd === -1 ? lines.length : tableEnd);
+
+    return tableLines.map(parseTimetableDetail).filter(Boolean);
+  };
+
+  const parseMarkdownApplicants = (section) => {
+    const applicantMatch = section.match(/\*\*신청자 명단\*\*\s*\n\s*\n([\s\S]+?)\n\n/);
+    if (!applicantMatch) return null;
+
+    return applicantMatch[1].split("\n").slice(2).map((row) => {
+      const cells = splitMarkdownTableRow(row);
+      if (cells.length < 5 || !cells[1]) return null;
+      return {
+        no: cells[0],
+        name: cells[1],
+        applyAt: cells[2],
+        cancelAt: cells[3] === "-" ? "" : cells[3],
+        status: cells[4],
+      };
+    }).filter(Boolean);
+  };
+
+  const parseMarkdownContent = (section, detailUrl) => {
+    const contentStart = detailUrl ? section.lastIndexOf(detailUrl) : -1;
+    if (contentStart === -1) return "";
+
+    const content = section.slice(contentStart + detailUrl.length)
+      .replace(/^\s*\*\*신청자 명단\*\*[\s\S]+?\n\n/, "")
+      .trim();
+    return content && content !== "_상세 내용 없음_" ? content : "";
+  };
+
+  const parseDetailSection = (section, existingDetail) => {
+    const id = numericId(getMarkdownListValue(section, "ID"));
+    if (id === null) return null;
+
+    const heading = section.split("\n")[0]?.trim() || "";
+    const detail = existingDetail || {
+      id,
+      title: heading.replace(/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s+/, ""),
+      applicants: [],
+      content: "",
+    };
+    detail.category = getMarkdownListValue(section, "구분") || detail.category || "";
+    detail.status = getMarkdownListValue(section, "상태") || detail.status || "";
+    detail.applyPeriod = getMarkdownListValue(section, "접수 기간") || detail.applyPeriod || "";
+    detail.lectureRaw = getMarkdownListValue(section, "강의 날짜") || detail.lectureRaw || "";
+    detail.method = getMarkdownListValue(section, "진행 방식") || detail.method || "";
+    detail.place = getMarkdownListValue(section, "장소") || detail.place || "";
+    detail.capacity = getMarkdownListValue(section, "모집 인원") || detail.capacity || "";
+
+    const appliedCountText = getMarkdownListValue(section, "신청자");
+    if (/^\d+/.test(appliedCountText)) detail.appliedCount = parseInt(appliedCountText, 10);
+    detail.author = getMarkdownListValue(section, "작성자") || detail.author || "";
+    detail.url = getMarkdownListValue(section, "상세 URL") || detail.url || "";
+
+    const lecture = parseKoreanDateTime(detail.lectureRaw);
+    detail.date = lecture.date || detail.date || "";
+    detail.start = lecture.start || detail.start || "";
+    detail.end = lecture.end || detail.end || "";
+
+    const applicants = parseMarkdownApplicants(section);
+    if (applicants) detail.applicants = applicants;
+
+    const content = parseMarkdownContent(section, detail.url);
+    if (content) detail.content = content;
+
+    return detail;
+  };
+
+  const parseExistingDetailsFromMarkdown = (markdown) => {
+    if (!markdown) return [];
+
+    const byId = new Map(
+      parseTimetableDetails(markdown).map((detail) => [String(detail.id), detail]),
+    );
+    const detailStart = markdown.indexOf("## 상세 내용");
+    if (detailStart === -1) return Array.from(byId.values());
+
+    const sections = markdown.slice(detailStart).split(/^####\s+/m).slice(1);
+    for (const section of sections) {
+      const id = parseInt(getMarkdownListValue(section, "ID"), 10);
+      const detail = parseDetailSection(section, byId.get(String(id)));
+      if (detail) byId.set(String(detail.id), detail);
+    }
+
+    return Array.from(byId.values());
+  };
+
+  const getExistingSnapshot = async () => {
+    if (!globalThis.chrome?.runtime?.sendMessage) return null;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.getSnapshot,
+      });
+      return response?.ok ? response.snapshot : null;
+    } catch (error) {
+      console.warn("[mentoring bookmarklet] 기존 스냅샷 로드 실패:", error);
+      return null;
+    }
+  };
+
+  const detailsFromSnapshot = (snapshot) => {
+    if (Array.isArray(snapshot?.details)) return snapshot.details;
+    return parseExistingDetailsFromMarkdown(snapshot?.markdown || "");
+  };
+
+  const mergeDetails = (...detailGroups) => {
+    const byId = new Map();
+    for (const details of detailGroups) {
+      for (const detail of details || []) {
+        if (detail?.id === undefined || detail?.id === null) continue;
+        byId.set(String(detail.id), detail);
+      }
+    }
+    return Array.from(byId.values());
+  };
+
+  const maxDetailId = (details) =>
+    details.reduce((max, detail) => {
+      const id = numericId(detail.id);
+      return id === null ? max : Math.max(max, id);
+    }, 0);
+
+  const saveExtensionData = async (markdown, details, options = {}) => {
     if (!globalThis.chrome?.runtime?.sendMessage) {
       throw new Error("확장 메시지를 사용할 수 없습니다. 익스텐션에서 실행했는지 확인하세요.");
     }
 
     const payload = {
+      snapshotVersion: 2,
       markdown,
+      details,
       generatedAt: new Date().toISOString(),
       count: details.length,
       sourceUrl: location.href,
+      phase: options.phase || "final",
+      addedCount: options.addedCount || 0,
     };
 
     const response = await chrome.runtime.sendMessage({
@@ -530,6 +769,10 @@
     if (!response?.ok) {
       throw new Error(response?.error || "IndexedDB 저장에 실패했습니다.");
     }
+  };
+
+  const saveDetailsSnapshot = async (details, options = {}) => {
+    await saveExtensionData(makeMarkdown(details), details, options);
   };
 
   const mapLimit = async (items, limit, worker) => {
@@ -553,55 +796,126 @@
 
   const createOverlay = () => {
     const overlay = document.createElement("div");
-    overlay.style.cssText =
-      "position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:360px;padding:14px 16px;border-radius:8px;background:#111827;color:#fff;font:13px/1.5 system-ui,-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.25);white-space:pre-wrap";
+    overlay.style.cssText = OVERLAY_STYLE;
     document.body.appendChild(overlay);
     return overlay;
   };
 
   const setOverlay = (overlay, message) => {
-    overlay.textContent = message;
+    overlay.replaceChildren();
+    String(message || "").split("\n").forEach((line) => {
+      const row = document.createElement("div");
+      row.textContent = line;
+      row.style.cssText = OVERLAY_ROW_STYLE;
+      overlay.appendChild(row);
+    });
   };
 
-  const collectDetails = async (listItems, overlay) => {
+  const collectDetails = async (listItems, overlay, label = "상세 수집 중") => {
     let completed = 0;
     return mapLimit(listItems, CONFIG.detailConcurrency, async (item) => {
       setOverlay(
         overlay,
-        `상세 수집 중... ${completed}/${listItems.length}\n${item.subjectTitle || item.id}`,
+        `${label}... ${completed}/${listItems.length}\n${item.subjectTitle || item.id}`,
       );
       const html = await fetchText(item.url);
       const detail = await parseDetail(html, item);
       completed += 1;
       setOverlay(
         overlay,
-        `상세 수집 중... ${completed}/${listItems.length}\n${item.subjectTitle || item.id}`,
+        `${label}... ${completed}/${listItems.length}\n${item.subjectTitle || item.id}`,
       );
       await sleep(CONFIG.delayMs);
       return detail;
     });
   };
 
+  const partitionListItemsByExistingMaxId = (listItems, existingMaxId) => {
+    const newItems = [];
+    const existingItems = [];
+
+    for (const item of listItems) {
+      const id = numericId(item.id);
+      if (existingMaxId > 0 && id !== null && id > existingMaxId) {
+        newItems.push(item);
+      } else {
+        existingItems.push(item);
+      }
+    }
+
+    return { newItems, existingItems };
+  };
+
+  const collectAndSaveNewDetails = async (newItems, existingDetails, overlay) => {
+    if (!newItems.length) return [];
+
+    const newDetails = await collectDetails(newItems, overlay, "신규 상세 수집 중");
+    const partialDetails = mergeDetails(existingDetails, newDetails);
+    await saveDetailsSnapshot(partialDetails, {
+      phase: "partial",
+      addedCount: newDetails.length,
+    });
+    setOverlay(overlay, `신규 ${newDetails.length}건 반영\n기존 멘토링 비교 중...`);
+    return newDetails;
+  };
+
+  const collectExistingDetails = async (existingItems, overlay, hasNewItems) => {
+    if (!existingItems.length) return [];
+
+    return collectDetails(
+      existingItems,
+      overlay,
+      hasNewItems ? "기존 상세 비교 중" : "상세 수집 중",
+    );
+  };
+
+  const runCollection = async (overlay) => {
+    const existingSnapshot = await getExistingSnapshot();
+    const existingDetails = detailsFromSnapshot(existingSnapshot);
+    const existingMaxId = maxDetailId(existingDetails);
+
+    const listItems = await collectIds();
+    if (!listItems.length) {
+      throw new Error("목록에서 멘토링 ID를 찾지 못했습니다.");
+    }
+
+    const { newItems, existingItems } = partitionListItemsByExistingMaxId(
+      listItems,
+      existingMaxId,
+    );
+    const newDetails = await collectAndSaveNewDetails(
+      newItems,
+      existingDetails,
+      overlay,
+    );
+    const existingCurrentDetails = await collectExistingDetails(
+      existingItems,
+      overlay,
+      newItems.length > 0,
+    );
+    const details = mergeDetails(newDetails, existingCurrentDetails);
+
+    await saveDetailsSnapshot(details, {
+      phase: "final",
+      addedCount: newDetails.length,
+    });
+    setOverlay(overlay, `완료: ${details.length}건 수집\n확장 일정 데이터가 업데이트되었습니다.`);
+    setTimeout(() => overlay.remove(), 5000);
+  };
+
   const overlay = createOverlay();
   setOverlay(overlay, "멘토링 목록 수집 중...");
 
   try {
-    const listItems = await collectIds();
-    if (!listItems.length)
-      throw new Error("목록에서 멘토링 ID를 찾지 못했습니다.");
-
-    const details = await collectDetails(listItems, overlay);
-    const markdown = makeMarkdown(details);
-    await saveExtensionData(markdown, details);
-    setOverlay(overlay, `완료: ${details.length}건 수집\n확장 일정 데이터가 업데이트되었습니다.`);
-    setTimeout(() => overlay.remove(), 5000);
+    await runCollection(overlay);
   } catch (error) {
-    console.error(error);
     if (error.loginRequired) {
+      console.warn("[mentoring bookmarklet] login required:", error.message);
       setOverlay(overlay, `로그인이 필요합니다.\n로그인 페이지로 이동합니다...`);
       setTimeout(redirectToLogin, 800);
       return;
     }
+    console.error(error);
     setOverlay(overlay, `실패: ${error.message}`);
   }
 })();

@@ -4,6 +4,7 @@ const STORE_NAME = "snapshots";
 const LATEST_KEY = "latest";
 const MESSAGE_TYPES = {
   runCollector: "SWM_RUN_COLLECTOR",
+  getSnapshot: "SWM_MENTORING_GET_SNAPSHOT",
   saveMarkdown: "SWM_MENTORING_SAVE_MARKDOWN",
   dataUpdated: "SWM_MENTORING_DATA_UPDATED",
   openViewer: "SWM_OPEN_VIEWER",
@@ -45,6 +46,21 @@ const putSnapshot = async (snapshot) => {
   }
 };
 
+const getSnapshot = async () => {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const request = tx.objectStore(STORE_NAME).get(LATEST_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+};
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === MESSAGE_TYPES.runCollector) {
     if (!sender.tab?.id) {
@@ -62,6 +78,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === MESSAGE_TYPES.getSnapshot) {
+    getSnapshot()
+      .then((snapshot) => sendResponse({ ok: true, snapshot }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
   if (message?.type !== MESSAGE_TYPES.saveMarkdown) return false;
 
   putSnapshot(message.payload)
@@ -72,6 +96,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         payload: {
           count: message.payload.count,
           generatedAt: message.payload.generatedAt,
+          phase: message.payload.phase || "final",
+          addedCount: message.payload.addedCount || 0,
         },
       }).catch(() => {});
     })
