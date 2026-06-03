@@ -36,6 +36,10 @@
 
   const normalizeName = (value) => (value || "").replace(/\s+/g, "").trim();
   const scheduleUrl = () => `${chrome.runtime.getURL(SCHEDULE_PAGE)}?v=${SCHEDULE_VERSION}`;
+  const currentPageHtml = () => document.documentElement.outerHTML;
+  const appPrefix = () =>
+    location.pathname.match(/^\/(?:busan\/)?sw(?=\/)/)?.[0] || "/busan/sw";
+  const dashboardUrl = () => `${appPrefix()}/mypage/myMain/dashboard.do?menuNo=200026`;
   const looksLikeLoginOrSessionPage = (html) =>
     /forLogin\.do|name=["']loginForm|id=["']loginForm|접근할 수 없는 세션|세션이\s*만료|로그인이\s*필요|비밀번호|아이디/i.test(
       html || "",
@@ -104,6 +108,50 @@
     return normalizeName(teamPageCall?.[1] || "");
   };
 
+  const detectPersonFromCurrentPage = () => {
+    const html = currentPageHtml();
+    detectedPerson = detectPersonFromHtml(html);
+    if (detectedPerson) return true;
+
+    if (looksLikeLoginOrSessionPage(html)) {
+      redirectToLogin("로그인 상태를 확인할 수 없습니다.");
+      return true;
+    }
+
+    return false;
+  };
+
+  const fetchDashboardHtml = async () => {
+    let response;
+    try {
+      response = await fetch(dashboardUrl(), { credentials: "include" });
+    } catch (error) {
+      console.debug("[SWM Mentoring] 신청 기준 이름 보조 감지를 건너뜁니다:", error);
+      return null;
+    }
+
+    const html = await response.text().catch((error) => {
+      console.debug("[SWM Mentoring] 신청 기준 이름 응답을 읽지 못했습니다:", error);
+      return "";
+    });
+    if (!html) return null;
+
+    return { response, html };
+  };
+
+  const detectPersonFromDashboard = async () => {
+    const result = await fetchDashboardHtml();
+    if (!result) return;
+
+    const { response, html } = result;
+    if (!response.ok || looksLikeLoginOrSessionPage(html)) {
+      redirectToLogin(`사용자 정보 응답 실패${response.ok ? "" : ` (${response.status})`}.`);
+      return;
+    }
+
+    detectedPerson = detectPersonFromHtml(html, { allowTeamPageFallback: true });
+  };
+
   const sendPersonToFrame = () => {
     if (!frameReady) return;
     if (!detectedPerson || !frame.contentWindow) return;
@@ -117,33 +165,7 @@
   };
 
   const detectCurrentPerson = async () => {
-    detectedPerson = detectPersonFromHtml(document.documentElement.outerHTML);
-    if (!detectedPerson && looksLikeLoginOrSessionPage(document.documentElement.outerHTML)) {
-      redirectToLogin("로그인 상태를 확인할 수 없습니다.");
-      return;
-    }
-    if (!detectedPerson) {
-      const appPrefix = location.pathname.match(/^\/(?:busan\/)?sw(?=\/)/)?.[0] || "/busan/sw";
-      let response;
-      try {
-        response = await fetch(`${appPrefix}/mypage/myMain/dashboard.do?menuNo=200026`, {
-          credentials: "include",
-        });
-      } catch (error) {
-        console.debug("[SWM Mentoring] 신청 기준 이름 보조 감지를 건너뜁니다:", error);
-        return;
-      }
-      const html = await response.text().catch((error) => {
-        console.debug("[SWM Mentoring] 신청 기준 이름 응답을 읽지 못했습니다:", error);
-        return "";
-      });
-      if (!html) return;
-      if (!response.ok || looksLikeLoginOrSessionPage(html)) {
-        redirectToLogin(`사용자 정보 응답 실패${response.ok ? "" : ` (${response.status})`}.`);
-        return;
-      }
-      detectedPerson = detectPersonFromHtml(html, { allowTeamPageFallback: true });
-    }
+    if (!detectPersonFromCurrentPage()) await detectPersonFromDashboard();
     sendPersonToFrame();
   };
 

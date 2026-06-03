@@ -28,37 +28,74 @@ const openDb = () =>
     request.onerror = () => reject(request.error);
   });
 
-const putSnapshot = async (snapshot) => {
+const withDb = async (operation) => {
   const db = await openDb();
   try {
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put({
-        key: LATEST_KEY,
-        ...snapshot,
-      });
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
+    return await operation(db);
   } finally {
     db.close();
   }
 };
 
-const getSnapshot = async () => {
-  const db = await openDb();
-  try {
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const request = tx.objectStore(STORE_NAME).get(LATEST_KEY);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
+const putSnapshot = (snapshot) =>
+  withDb(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).put({
+          key: LATEST_KEY,
+          ...snapshot,
+        });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      }),
+  );
+
+const getSnapshot = () =>
+  withDb(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const request = tx.objectStore(STORE_NAME).get(LATEST_KEY);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+        tx.onabort = () => reject(tx.error);
+      }),
+  );
+
+const dataUpdatedPayload = (payload) => ({
+  count: payload.count,
+  generatedAt: payload.generatedAt,
+  phase: payload.phase || "final",
+  addedCount: payload.addedCount || 0,
+});
+
+const notifyDataUpdated = (tabId, payload) => {
+  if (!tabId) return;
+  chrome.tabs.sendMessage(tabId, {
+    type: MESSAGE_TYPES.dataUpdated,
+    payload: dataUpdatedPayload(payload),
+  }).catch(() => {});
+};
+
+const respondAsync = (sendResponse, promise) => {
+  promise
+    .then((response) => sendResponse(response))
+    .catch((error) => sendResponse({ ok: false, error: error.message }));
+  return true;
+};
+
+const injectCollector = (tabId) =>
+  chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["collector.js"],
+  }).then(() => ({ ok: true }));
+
+const saveSnapshotAndNotify = async (payload, tabId) => {
+  await putSnapshot(payload);
+  notifyDataUpdated(tabId, payload);
+  return { ok: true };
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -68,44 +105,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    chrome.scripting.executeScript({
-      target: { tabId: sender.tab.id },
-      files: ["collector.js"],
-    })
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-
-    return true;
+    return respondAsync(sendResponse, injectCollector(sender.tab.id));
   }
 
   if (message?.type === MESSAGE_TYPES.getSnapshot) {
-    getSnapshot()
-      .then((snapshot) => sendResponse({ ok: true, snapshot }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-
-    return true;
+    return respondAsync(
+      sendResponse,
+      getSnapshot().then((snapshot) => ({ ok: true, snapshot })),
+    );
   }
 
   if (message?.type !== MESSAGE_TYPES.saveMarkdown) return false;
 
-  putSnapshot(message.payload)
-    .then(() => {
-      sendResponse({ ok: true });
-      chrome.tabs.sendMessage(sender.tab.id, {
-        type: MESSAGE_TYPES.dataUpdated,
-        payload: {
-          count: message.payload.count,
-          generatedAt: message.payload.generatedAt,
-          phase: message.payload.phase || "final",
-          addedCount: message.payload.addedCount || 0,
-        },
-      }).catch(() => {});
-    })
-    .catch((error) => {
-      sendResponse({ ok: false, error: error.message });
-    });
-
-  return true;
+  return respondAsync(
+    sendResponse,
+    saveSnapshotAndNotify(message.payload, sender.tab?.id),
+  );
 });
 
 // 아이콘 클릭 → (소마 /sw/ 페이지가 아니면) 부산 소마로 이동 후 일정 뷰어를 연다.

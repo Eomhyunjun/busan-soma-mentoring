@@ -77,6 +77,9 @@
       .replace(/\|/g, "\\|")
       .replace(/\n/g, "<br>");
 
+  const formatAppliedCount = (count) =>
+    count === null || count === undefined ? "-" : `${count}명`;
+
   const parseKoreanDateTime = (value) => {
     const text = normalizeText(value);
     const match = text.match(
@@ -237,6 +240,36 @@
     return applicants;
   };
 
+  const extractDetailField = (html, label) => {
+    const pattern = new RegExp(
+      `<strong[^>]*class=["']t["'][^>]*>\\s*${label}\\s*<\\/strong>\\s*<div[^>]*class=["']c[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`,
+      "i",
+    );
+    return normalizeText(html.match(pattern)?.[1] || "");
+  };
+
+  const extractAppliedCount = (html) => {
+    const match =
+      html.match(/appCnt\s*:\s*["'](\d+)["']/) ||
+      html.match(/신청자\s*리스트\s*\[\s*<strong[^>]*>\s*(\d+)\s*명/i) ||
+      html.match(/신청자[^\[]*\[\s*(\d+)\s*명\s*\]/);
+    return match ? parseInt(match[1], 10) : null;
+  };
+
+  const detailUrlFor = (fallback) =>
+    fallback.url ||
+    `${mentoPath}/view.do?qustnrSn=${fallback.id}&menuNo=${CONFIG.menuNo}&pageIndex=1`;
+
+  const uniqueApplicants = (applicants) => {
+    const applicantKeys = new Set();
+    return applicants.filter((applicant) => {
+      const key = `${applicant.no}|${applicant.name}|${applicant.applyAt}`;
+      if (applicantKeys.has(key)) return false;
+      applicantKeys.add(key);
+      return true;
+    });
+  };
+
   const withDetailPageIndex = (url, pageIndex) => {
     const next = new URL(absolutize(url));
     next.searchParams.set("pageIndex", String(pageIndex));
@@ -290,32 +323,7 @@
       .map((entry) => entry[1]);
   };
 
-  const parseDetail = async (html, fallback) => {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const getField = (label) => {
-      const pattern = new RegExp(
-        `<strong[^>]*class=["']t["'][^>]*>\\s*${label}\\s*<\\/strong>\\s*<div[^>]*class=["']c[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`,
-        "i",
-      );
-      return normalizeText(html.match(pattern)?.[1] || "");
-    };
-
-    const lecture = parseKoreanDateTime(getField("강의날짜"));
-    const title = getField("모집 명") || fallback.subjectTitle || "";
-    const contentNode = doc.querySelector(".bbs-view-new .cont") || doc.querySelector(".cont");
-    contentNode?.querySelectorAll(".file, script, style").forEach((node) => node.remove());
-    const content = normalizeText(contentNode?.innerHTML || "");
-    // 신청자 수 추출 — 페이지 JS에 appCnt: "N" 형태로 들어있음
-    const appliedMatch =
-      html.match(/appCnt\s*:\s*["'](\d+)["']/) ||
-      html.match(/신청자\s*리스트\s*\[\s*<strong[^>]*>\s*(\d+)\s*명/i) ||
-      html.match(/신청자[^\[]*\[\s*(\d+)\s*명\s*\]/);
-    const appliedCount = appliedMatch ? parseInt(appliedMatch[1], 10) : null;
-
-    // 신청자 명단 추출 — 신청자 리스트가 페이지네이션되면 pageIndex=2..N도 추가 수집
-    const detailUrl =
-      fallback.url ||
-      `${mentoPath}/view.do?qustnrSn=${fallback.id}&menuNo=${CONFIG.menuNo}&pageIndex=1`;
+  const collectApplicantsForDetail = async (html, detailUrl, appliedCount) => {
     const applicants = extractApplicants(html);
     const applicantPageUrls = collectApplicantPageUrls(
       html,
@@ -323,21 +331,28 @@
       appliedCount,
       applicants.length,
     );
-    if (applicantPageUrls.length) {
-      for (const url of applicantPageUrls) {
-        const pageHtml = await fetchText(url);
-        applicants.push(...extractApplicants(pageHtml));
-        await sleep(CONFIG.delayMs);
-      }
+
+    for (const url of applicantPageUrls) {
+      const pageHtml = await fetchText(url);
+      applicants.push(...extractApplicants(pageHtml));
+      await sleep(CONFIG.delayMs);
     }
 
-    const applicantKeys = new Set();
-    const uniqueApplicants = applicants.filter((applicant) => {
-      const key = `${applicant.no}|${applicant.name}|${applicant.applyAt}`;
-      if (applicantKeys.has(key)) return false;
-      applicantKeys.add(key);
-      return true;
-    });
+    return uniqueApplicants(applicants);
+  };
+
+  const parseDetail = async (html, fallback) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const getField = (label) => extractDetailField(html, label);
+
+    const lecture = parseKoreanDateTime(getField("강의날짜"));
+    const title = getField("모집 명") || fallback.subjectTitle || "";
+    const contentNode = doc.querySelector(".bbs-view-new .cont") || doc.querySelector(".cont");
+    contentNode?.querySelectorAll(".file, script, style").forEach((node) => node.remove());
+    const content = normalizeText(contentNode?.innerHTML || "");
+    const appliedCount = extractAppliedCount(html);
+    const detailUrl = detailUrlFor(fallback);
+    const applicants = await collectApplicantsForDetail(html, detailUrl, appliedCount);
 
     return {
       id: fallback.id,
@@ -354,7 +369,7 @@
       place: getField("장소"),
       capacity: getField("모집인원"),
       appliedCount,
-      applicants: uniqueApplicants,
+      applicants,
       author: getField("작성자"),
       registeredAt: getField("등록일"),
       category: fallback.categoryNm || "",
@@ -380,6 +395,35 @@
     ];
   };
 
+  const extractListItemsFromHtml = (html) => [
+    ...extractCalendarItems(html),
+    ...extractListLinks(html),
+  ];
+
+  const currentListPageHtml = () => {
+    const isListPage =
+      location.pathname.includes("/mypage/mentoLec/list.do") ||
+      document.querySelector("input[name='pageIndex'], .mypageCalendar");
+    return isListPage ? document.documentElement.outerHTML : "";
+  };
+
+  const fetchMonthListHtml = async (month) => {
+    for (const url of listUrlsForMonth(month)) {
+      try {
+        return {
+          html: await fetchText(url),
+          usedUrl: url,
+        };
+      } catch (error) {
+        console.warn(
+          `[mentoring bookmarklet] list fetch failed: ${url}`,
+          error,
+        );
+      }
+    }
+    return { html: "", usedUrl: "" };
+  };
+
   const collectIds = async () => {
     const byId = Object.create(null);
     const upsertListItem = (item, month, listUrl) => {
@@ -396,44 +440,18 @@
       };
     };
 
-    const currentHtml =
-      location.pathname.includes("/mypage/mentoLec/list.do") ||
-      document.querySelector("input[name='pageIndex'], .mypageCalendar")
-        ? document.documentElement.outerHTML
-        : "";
-
+    const currentHtml = currentListPageHtml();
     if (currentHtml) {
-      for (const item of [
-        ...extractCalendarItems(currentHtml),
-        ...extractListLinks(currentHtml),
-      ]) {
+      for (const item of extractListItemsFromHtml(currentHtml)) {
         upsertListItem(item, "", location.href);
       }
     }
 
     for (const month of CONFIG.months) {
-      let html = "";
-      let usedUrl = "";
-
-      for (const url of listUrlsForMonth(month)) {
-        try {
-          html = await fetchText(url);
-          usedUrl = url;
-          break;
-        } catch (error) {
-          console.warn(
-            `[mentoring bookmarklet] list fetch failed: ${url}`,
-            error,
-          );
-        }
-      }
-
+      const { html, usedUrl } = await fetchMonthListHtml(month);
       if (!html) continue;
 
-      const calendarItems = extractCalendarItems(html);
-      const linkItems = extractListLinks(html);
-
-      for (const item of [...calendarItems, ...linkItems]) {
+      for (const item of extractListItemsFromHtml(html)) {
         const date = item.date || "";
         if (date && !date.startsWith(month)) continue;
         upsertListItem(item, month, usedUrl);
@@ -478,7 +496,7 @@
           item.method,
           item.place,
           item.capacity,
-          (item.appliedCount === null || item.appliedCount === undefined) ? "-" : `${item.appliedCount}명`,
+          formatAppliedCount(item.appliedCount),
           item.author,
           item.id,
         ]
@@ -513,9 +531,7 @@
       lines.push(`- 진행 방식: ${item.method || "-"}`);
       lines.push(`- 장소: ${item.place || "-"}`);
       lines.push(`- 모집 인원: ${item.capacity || "-"}`);
-      lines.push(
-        `- 신청자: ${item.appliedCount === null || item.appliedCount === undefined ? "-" : `${item.appliedCount}명`}`,
-      );
+      lines.push(`- 신청자: ${formatAppliedCount(item.appliedCount)}`);
       lines.push(`- 작성자: ${item.author || "-"}`);
       lines.push(`- 상세 URL: ${absolutize(item.url)}`);
       if (item.applicants && item.applicants.length) {
