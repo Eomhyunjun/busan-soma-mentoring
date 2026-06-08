@@ -5,7 +5,10 @@
   const SCHEDULE_VERSION = "20260526-scroll-offset";
   const LOGIN_URL =
     "https://www.swmaestro.ai/busan/sw/member/user/forLogin.do?menuNo=200025";
-  const LOGIN_PATH = "/busan/sw/member/user/forLogin.do";
+  const LOGIN_PATHS = new Set([
+    "/busan/sw/member/user/forLogin.do",
+    "/busan/sw/member/user/loginForward.do",
+  ]);
   const TOGGLE_ID = "swm-mentoring-toggle";
   const VIEWER_ID = "swm-mentoring-viewer";
   const FRAME_ID = "swm-mentoring-frame";
@@ -26,7 +29,7 @@
     /^\/(?:busan\/)?sw\//.test(location.pathname);
 
   const isLoginPage = () =>
-    location.hostname === SWM_HOST && location.pathname === LOGIN_PATH;
+    location.hostname === SWM_HOST && LOGIN_PATHS.has(location.pathname);
 
   if (!isSwmPage()) return;
   if (isLoginPage()) return;
@@ -46,7 +49,7 @@
     ) && !/로그아웃|teamPageGo2|mypage\/myMain|class=["']welcome/i.test(html || "");
 
   const redirectToLogin = (reason) => {
-    console.warn(`[SWM Mentoring] ${reason} 로그인 페이지로 이동합니다.`);
+    console.info(`[SWM Mentoring] ${reason} 로그인 페이지로 이동합니다.`);
     location.replace(LOGIN_URL);
   };
 
