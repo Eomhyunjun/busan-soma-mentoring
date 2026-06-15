@@ -1,10 +1,13 @@
 (async () => {
   const CONFIG = {
-    months: ["2026-05", "2026-06"],
     menuNo: "200046",
     delayMs: 120,
     applicantPageSize: 10,
     detailConcurrency: 10,
+    // 수집할 달을 미리 정하지 않는다. 현재 월에서 양방향으로 list.do를 훑다가
+    // 연속 monthProbeStop개월이 비면 그 방향을 멈춘다(monthProbeMax는 안전 상한).
+    monthProbeStop: 3,
+    monthProbeMax: 24,
   };
   const MESSAGE_TYPES = {
     getSnapshot: "SWM_MENTORING_GET_SNAPSHOT",
@@ -447,16 +450,41 @@
       }
     }
 
-    for (const month of CONFIG.months) {
+    // 현재 월에서 시작해 데이터가 있는 한 양방향으로 모든 달을 훑는다.
+    // 특정 달/연도를 박지 않고, 연속으로 monthProbeStop개월이 비면 그 방향을 멈춘다.
+    const ymOf = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const shiftMonth = (ym, delta) => {
+      let [year, mon] = ym.split("-").map(Number);
+      mon += delta;
+      while (mon > 12) { mon -= 12; year += 1; }
+      while (mon < 1) { mon += 12; year -= 1; }
+      return `${year}-${String(mon).padStart(2, "0")}`;
+    };
+    const collectMonth = async (month) => {
       const { html, usedUrl } = await fetchMonthListHtml(month);
-      if (!html) continue;
-
+      if (!html) return 0;
+      let found = 0;
       for (const item of extractListItemsFromHtml(html)) {
         const date = item.date || "";
         if (date && !date.startsWith(month)) continue;
         upsertListItem(item, month, usedUrl);
+        found += 1;
       }
-    }
+      return found;
+    };
+    const probe = async (startMonth, step) => {
+      let emptyRun = 0;
+      let month = startMonth;
+      for (let i = 0; i < CONFIG.monthProbeMax && emptyRun < CONFIG.monthProbeStop; i += 1) {
+        const found = await collectMonth(month);
+        emptyRun = found > 0 ? 0 : emptyRun + 1;
+        month = shiftMonth(month, step);
+      }
+    };
+    const thisMonth = ymOf(new Date());
+    await probe(thisMonth, 1); // 현재 월 + 미래
+    await probe(shiftMonth(thisMonth, -1), -1); // 과거
 
     return Object.keys(byId).map((id) => byId[id]);
   };
@@ -470,7 +498,7 @@
     );
 
     const lines = [];
-    lines.push("# 2026년 5-6월 멘토링 일정");
+    lines.push("# 멘토링 일정");
     lines.push("");
     lines.push(`- 생성일: ${new Date().toLocaleString("ko-KR")}`);
     lines.push(`- 수집 건수: ${sorted.length}건`);
