@@ -2,7 +2,7 @@
   const SWM_HOST = "www.swmaestro.ai";
   const EXTENSION_ORIGIN = chrome.runtime.getURL("").slice(0, -1);
   const SCHEDULE_PAGE = "schedule.html";
-  const SCHEDULE_VERSION = "20260526-scroll-offset";
+  const SCHEDULE_VERSION = "20260621-mentor-notes";
   const LOGIN_URL =
     "https://www.swmaestro.ai/busan/sw/member/user/forLogin.do?menuNo=200025";
   const LOGIN_PATHS = new Set([

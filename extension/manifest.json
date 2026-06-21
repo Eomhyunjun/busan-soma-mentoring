@@ -2,9 +2,21 @@
   "manifest_version": 3,
   "name": "SWM Mentoring Collector",
   "description": "SW Maestro 멘토링 일정과 신청자 명단을 수집해 확장 일정 화면에 반영합니다.",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_title": "부산 소마 멘토링 일정 보기"
+    "default_title": "부산 소마 멘토링 일정 보기",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "permissions": [
     "activeTab",

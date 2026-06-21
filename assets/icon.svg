@@ -1,0 +1,30 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 배경: 둥근 사각 배지 -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+
+  <!-- 캘린더 본체 -->
+  <rect x="26" y="32" width="76" height="68" rx="12" fill="#ffffff"/>
+  <!-- 헤더 띠 -->
+  <path d="M26 44a12 12 0 0 1 12-12h52a12 12 0 0 1 12 12v6H26v-6z" fill="#1d4ed8"/>
+  <!-- 상단 고리 -->
+  <rect x="42" y="22" width="8" height="20" rx="4" fill="#1e3a8a"/>
+  <rect x="78" y="22" width="8" height="20" rx="4" fill="#1e3a8a"/>
+
+  <!-- 날짜 점들 -->
+  <g fill="#bfdbfe">
+    <circle cx="40" cy="66" r="4"/>
+    <circle cx="56" cy="66" r="4"/>
+    <circle cx="88" cy="66" r="4"/>
+    <circle cx="40" cy="84" r="4"/>
+  </g>
+
+  <!-- 강조 별 (멘토/즐겨찾기) -->
+  <path d="M76 56l5.2 10.5 11.6 1.7-8.4 8.2 2 11.6L76 84.3 65.6 90l2-11.6-8.4-8.2 11.6-1.7L76 56z" fill="#f59e0b"/>
+</svg>

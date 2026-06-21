@@ -60,7 +60,8 @@
     const STORAGE_KEY = 'mentoring_user_state_v1';
     const PERSON_APPLIED_KEY = 'mentoring_person_applied_v1';
     const MENTOR_FAVORITES_KEY = 'mentoring_mentor_favorites_v1';
-    const USER_DATA_KEYS = [STORAGE_KEY, PERSON_APPLIED_KEY, MENTOR_FAVORITES_KEY];
+    const MENTOR_NOTES_KEY = 'mentoring_mentor_notes_v1';
+    const USER_DATA_KEYS = [STORAGE_KEY, PERSON_APPLIED_KEY, MENTOR_FAVORITES_KEY, MENTOR_NOTES_KEY];
     const STATES = ['none', 'applied', 'interest', 'meh', 'exclude'];
     const STATE_LABELS = {
       none: '·',
@@ -109,11 +110,13 @@
     let userState = {};
     let personApplied = {};
     let mentorFavorites = {};
+    let mentorNotes = {};
 
     async function loadUserData() {
       userState = asObject(await storage.get(STORAGE_KEY));
       personApplied = asObject(await storage.get(PERSON_APPLIED_KEY));
       mentorFavorites = asObject(await storage.get(MENTOR_FAVORITES_KEY));
+      mentorNotes = asObject(await storage.get(MENTOR_NOTES_KEY));
     }
 
     // 구버전 localStorage 데이터를 chrome.storage.local로 1회 이전(멱등).
@@ -134,14 +137,19 @@
     function saveState() { persist(STORAGE_KEY, userState); }
     function savePersonApplied() { persist(PERSON_APPLIED_KEY, personApplied); }
     function saveMentorFavorites() { persist(MENTOR_FAVORITES_KEY, mentorFavorites); }
+    function saveMentorNotes() { persist(MENTOR_NOTES_KEY, mentorNotes); }
 
-    // 멘토 즐겨찾기 안정 키 — 불안정한 Notion 블록 id 대신 정규화한 멘토 이름을 쓴다.
-    // indexMentors의 키 생성과 같은 규칙(한글 이름 우선, 없으면 정제 이름)이라 mentorMap과 일관된다.
+    // 멘토 즐겨찾기/메모 안정 키 — 불안정한 Notion 블록 id 대신 정규화한 멘토 이름을 쓴다.
+    // 한글 이름 우선, 없으면 정제 이름. 동명이인은 Notion 제목 뒤 번호(예: "홍길동2")로 구분해야
+    // 한 키로 합쳐져 즐겨찾기/메모가 함께 새지 않는다. 번호는 base에서 떼고 "#N"으로 따로 붙인다.
     function mentorKey(mentor) {
       if (!mentor || !mentor.name) return '';
       const korean = mentor.name.match(/[가-힣]{2,4}/);
-      if (korean) return korean[0];
-      return mentor.name.replace(/멘토|✨|✯|¸\.|•|´|¨|\*|✿|`|\.|\s/g, '').toLowerCase();
+      const base = korean
+        ? korean[0]
+        : mentor.name.replace(/멘토|✨|✯|¸\.|•|´|¨|\*|✿|`|\.|\s|\d/g, '').toLowerCase();
+      const num = mentor.name.match(/\d+/);
+      return num ? `${base}#${num[0]}` : base;
     }
 
     function isFavoriteMentor(mentor) {
@@ -158,6 +166,43 @@
       if (mentorFavorites[key]) delete mentorFavorites[key];
       else mentorFavorites[key] = true;
       saveMentorFavorites();
+    }
+
+    // 멘토 메모 — 즐겨찾기와 같은 안정 키(mentorKey)를 쓰므로 멘토 재수집/백업복원에도 유지된다.
+    function getMentorNote(mentor) {
+      const key = mentorKey(mentor);
+      return (key && mentorNotes[key]) || '';
+    }
+
+    function hasMentorNote(mentor) {
+      return getMentorNote(mentor).trim().length > 0;
+    }
+
+    function setMentorNote(key, text) {
+      if (!key) return;
+      const trimmed = (text || '').replace(/\s+$/, '');
+      if (trimmed) mentorNotes[key] = trimmed;
+      else delete mentorNotes[key];
+      saveMentorNotes();
+    }
+
+    function renderMentorNoteBox(mentor) {
+      const key = mentorKey(mentor);
+      if (!key) return '';
+      return `
+        <div class="mentor-note-box">
+          <div class="mentor-note-label">📝 내 메모<span class="mentor-note-hint">자동 저장</span></div>
+          <textarea class="mentor-note-input" data-mentor-note="${escape(key)}" rows="3" placeholder="이 멘토에 대한 메모를 남겨보세요. (예: 신청 사유, 질문할 것)">${escape(getMentorNote(mentor))}</textarea>
+        </div>
+      `;
+    }
+
+    // 멘토 타일(카드)에서 바로 메모를 적고 즉시 저장하기 위한 인라인 입력칸.
+    // 비어 있을 땐 옅게 표시되고(:placeholder-shown), 내용만큼 높이가 자동으로 늘어난다(field-sizing).
+    function renderMentorTileNote(mentor) {
+      const key = mentorKey(mentor);
+      if (!key) return '';
+      return `<textarea class="mentor-tile-note" data-mentor-note="${escape(key)}" rows="1" placeholder="📝 메모 추가">${escape(getMentorNote(mentor))}</textarea>`;
     }
 
     function renderFavoriteButton(mentor) {
@@ -702,6 +747,7 @@
             [STORAGE_KEY]: asObject(await storage.get(STORAGE_KEY)),
             [PERSON_APPLIED_KEY]: asObject(await storage.get(PERSON_APPLIED_KEY)),
             [MENTOR_FAVORITES_KEY]: asObject(await storage.get(MENTOR_FAVORITES_KEY)),
+            [MENTOR_NOTES_KEY]: asObject(await storage.get(MENTOR_NOTES_KEY)),
           },
         };
         downloadJson(`swm-mentoring-backup-${todayIso()}.json`, backup);
@@ -737,6 +783,7 @@
           storage.set(STORAGE_KEY, asObject(saved[STORAGE_KEY])),
           storage.set(PERSON_APPLIED_KEY, asObject(saved[PERSON_APPLIED_KEY])),
           storage.set(MENTOR_FAVORITES_KEY, asObject(saved[MENTOR_FAVORITES_KEY])),
+          storage.set(MENTOR_NOTES_KEY, asObject(saved[MENTOR_NOTES_KEY])),
         ]);
         await loadUserData();
         await loadData();
@@ -2128,6 +2175,7 @@
                     ${cnt > 0 ? ` · <span style="color:var(--accent);font-weight:600">강의 ${cnt}건</span>` : ''}
                   </div>
                   ${tags.length ? `<div class="mentor-tile-tags">${tags.map(t => `<span class="mentor-tile-tag">${escape(t)}</span>`).join('')}</div>` : ''}
+                  ${renderMentorTileNote(m)}
                 </div>
               </div>
             `;
@@ -2138,6 +2186,7 @@
       document.querySelectorAll('.mentor-tile').forEach(el => {
         el.onclick = e => {
           if (e.target.closest('[data-mentor-favorite]')) return;
+          if (e.target.closest('[data-mentor-note]')) return;
           showMentor(el.dataset.mentorId);
         };
       });
@@ -2181,6 +2230,7 @@
           </div>
         </div>
         ${m.bio && m.bio.length > m.name.length + 5 ? `<div class="mentor-bio-full">${escape(m.bio)}</div>` : ''}
+        ${renderMentorNoteBox(m)}
         ${lectures.length > 0 ? `
           <div class="mentor-lectures">
             <div class="mentor-lectures-title">📚 ${m.name}의 강의 ${lectures.length}건</div>
@@ -2247,6 +2297,7 @@
               ${mentor['이메일'] ? `<a href="mailto:${mentor['이메일']}" class="mentor-link">${escape(mentor['이메일'])}</a>` : ''}
             </div>
             ${mentor.bio && mentor.bio.length > mentor.name.length + 5 ? `<details style="margin-top:8px;font-size:12px;color:var(--text-soft)"><summary style="cursor:pointer;color:var(--accent)">자기소개 펼치기 (${mentor.bio.length}자)</summary><div style="margin-top:6px;white-space:pre-wrap;line-height:1.6;background:var(--bg-card);padding:10px;border-radius:6px">${escape(mentor.bio)}</div></details>` : ''}
+            ${renderMentorNoteBox(mentor)}
           </div>
         </div>
       ` : '';
@@ -2464,8 +2515,18 @@
       }
     });
 
+    // 멘토 메모 자동 저장 — 입력 즉시 chrome.storage.local에 반영(모달은 다시 그리지 않아 커서 유지).
+    document.addEventListener('input', e => {
+      const noteEl = e.target.closest('[data-mentor-note]');
+      if (noteEl) setMentorNote(noteEl.dataset.mentorNote, noteEl.value);
+    });
+
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeModal();
+      // 메모 입력 중 Esc는 닫기 대신 입력칸 포커스만 해제(실수로 모달이 닫히지 않도록).
+      if (e.key === 'Escape') {
+        if (e.target.closest('[data-mentor-note]')) { e.target.blur(); return; }
+        closeModal();
+      }
     });
 
     // 시작 — 사용자 상태를 먼저 chrome.storage.local에서 불러온 뒤(구버전 localStorage는 1회 이전) 일정을 로드한다.
