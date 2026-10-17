@@ -1672,7 +1672,7 @@
       `);
 
       renderConflictWarning(conflictPairs);
-      renderCalendarGrid(filtered, '조건에 맞는 일정이 없습니다.');
+      renderCalendarGrid(filtered);
     }
 
     function renderAppliedCalendar() {
@@ -1690,17 +1690,12 @@
       `);
 
       renderConflictWarning(conflictPairs);
-      renderCalendarGrid(applied, '신청한 일정이 없습니다.');
+      renderCalendarGrid(applied);
     }
 
-    function renderCalendarGrid(items, emptyMessage) {
+    function renderCalendarGrid(items) {
       if (!currentMonth) {
         setHtml('content', '<div class="empty">표시할 월 데이터가 없습니다.</div>');
-        return;
-      }
-
-      if (!items.length) {
-        setHtml('content', `<div class="empty">${emptyMessage}</div>`);
         return;
       }
 
