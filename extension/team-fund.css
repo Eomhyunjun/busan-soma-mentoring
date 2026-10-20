@@ -1,0 +1,242 @@
+#swm-fund-dashboard {
+  box-sizing: border-box;
+  margin: 0 0 24px;
+  padding: 20px 24px;
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  background: #fff;
+  color: #18181b;
+  font: 400 14px/1.5 -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  text-align: left;
+}
+
+#swm-fund-dashboard * {
+  box-sizing: border-box;
+}
+
+#swm-fund-dashboard .swm-fund-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+#swm-fund-dashboard .swm-fund-title {
+  margin: 0;
+  color: #18181b;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+#swm-fund-dashboard .swm-fund-cap {
+  color: #71717a;
+  font-size: 13px;
+}
+
+#swm-fund-dashboard .swm-fund-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 14px 0 10px;
+}
+
+#swm-fund-dashboard .swm-fund-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #52525b;
+  font-size: 13px;
+}
+
+#swm-fund-dashboard .swm-fund-stat-value {
+  color: #18181b;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#swm-fund-dashboard .swm-fund-stat-percent {
+  margin-left: 6px;
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+#swm-fund-dashboard .swm-fund-swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+#swm-fund-dashboard .swm-fund-swatch.is-approved {
+  background: #bfdbfe;
+}
+
+#swm-fund-dashboard .swm-fund-swatch.is-evidence {
+  background: #1e3a8a;
+}
+
+#swm-fund-dashboard .swm-fund-gauge {
+  position: relative;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+#swm-fund-dashboard .swm-fund-gauge-approved {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #bfdbfe;
+}
+
+#swm-fund-dashboard .swm-fund-gauge-evidence {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: flex;
+}
+
+#swm-fund-dashboard .swm-fund-gauge-evidence > span {
+  height: 100%;
+}
+
+#swm-fund-dashboard .swm-fund-gauge-evidence > span + span {
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+#swm-fund-dashboard .swm-fund-scale {
+  position: relative;
+  height: 16px;
+  margin-top: 4px;
+  color: #a1a1aa;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+#swm-fund-dashboard .swm-fund-scale > span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+#swm-fund-dashboard .swm-fund-scale > span:first-child {
+  transform: none;
+}
+
+#swm-fund-dashboard .swm-fund-scale > span:last-child {
+  transform: translateX(-100%);
+}
+
+#swm-fund-dashboard .swm-fund-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+#swm-fund-dashboard .swm-fund-category {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+#swm-fund-dashboard .swm-fund-category-name {
+  color: #3f3f46;
+  font-size: 13px;
+}
+
+#swm-fund-dashboard .swm-fund-category-count {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+#swm-fund-dashboard .swm-fund-category-amount {
+  color: #18181b;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#swm-fund-dashboard .swm-fund-empty,
+#swm-fund-dashboard .swm-fund-status {
+  margin: 12px 0 0;
+  color: #71717a;
+  font-size: 12px;
+}
+
+#swm-fund-dashboard .swm-fund-status.is-error {
+  color: #b91c1c;
+}
+
+/* 원래 행(swm-fund-entry-row)과 품목 행(swm-fund-item-row)을 한 덩어리로 보이게 한다.
+   두 행 사이 선은 없애고, hover는 사이트 목록 hover 색(#f8fcff)으로 두 행에 같이 건다.
+   글꼴과 크기는 표에서 물려받는다. */
+table tr.swm-fund-entry-row {
+  border-bottom: 0 !important;
+}
+
+table tr.swm-fund-entry-row > td,
+table tr.swm-fund-item-row > td {
+  height: auto !important;
+}
+
+table tr.swm-fund-entry-row > td:not(:first-child) {
+  padding-bottom: 6px !important;
+}
+
+table tr.swm-fund-entry-row:hover + tr.swm-fund-item-row,
+table tr.swm-fund-entry-row:has(+ tr.swm-fund-item-row:hover) {
+  background: #f8fcff;
+}
+
+table tr.swm-fund-item-row > td {
+  padding: 6px 10px 12px 0 !important;
+}
+
+/* 라벨 열 너비(--swm-fund-label-width)는 구분 칸, 값 들여쓰기(--swm-fund-value-indent)는 제목 칸 기준이다. */
+table tr.swm-fund-item-row .swm-fund-item {
+  display: grid;
+  grid-template-columns: var(--swm-fund-label-width, 6em) minmax(0, 1fr);
+  align-items: center;
+  row-gap: 4px;
+}
+
+table tr.swm-fund-item-row .swm-fund-item-label {
+  color: #999;
+  text-align: center;
+  word-break: keep-all;
+}
+
+table tr.swm-fund-item-row .swm-fund-item-value {
+  padding-left: var(--swm-fund-value-indent, 10px);
+  text-align: left;
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* 품목명 값 */
+table tr.swm-fund-item-row .swm-fund-item-value:nth-child(2) {
+  color: #333;
+}
+
+@media (max-width: 640px) {
+  #swm-fund-dashboard {
+    padding: 16px;
+  }
+
+  #swm-fund-dashboard .swm-fund-stat-value {
+    font-size: 18px;
+  }
+}

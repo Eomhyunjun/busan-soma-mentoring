@@ -45,6 +45,18 @@
         "content.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.swmaestro.ai/*/mypage/teamFound/list.do*"
+      ],
+      "js": [
+        "team-fund.js"
+      ],
+      "css": [
+        "team-fund.css"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
